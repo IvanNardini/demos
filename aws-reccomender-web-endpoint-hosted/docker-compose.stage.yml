@@ -1,0 +1,42 @@
+version: '3'
+
+services:
+
+    # Database Storage
+    mysql:
+        container_name: database-sample-stage
+        networks:
+            - staging
+
+    # # Notebook 
+    jupyterlab:
+        build:
+            context: ./docker/jupyter
+            dockerfile: Dockerfile.jupyter.stage
+        image: jupyterlab-stage:1
+        container_name: notebook-stage
+        volumes:
+            - /var/run/docker.sock:/var/run/docker.sock
+        networks: 
+            - staging
+
+    # Tracking server
+    mlflow:
+        container_name: tracking-server-stage
+        networks:
+            - staging
+
+    # Tracking backend database
+    postgres:
+        container_name: tracking-database-stage
+        networks: 
+            - staging
+
+    # Tracking Artefact backend
+    minio:
+        container_name: tracking-artefact-stage
+        networks: 
+            - staging
+
+networks: 
+    staging:

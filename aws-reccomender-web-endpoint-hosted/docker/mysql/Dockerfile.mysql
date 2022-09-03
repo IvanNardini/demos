@@ -1,0 +1,20 @@
+FROM  mysql:8
+
+LABEL MANTAINER="Ivan Nardini <ivan.nardini@sas.com>"
+
+LABEL DESCRIPTION='Customized mysql database to load data when it starts (demo purpose)'
+
+USER root
+
+ENV MYSQL_DATABASE='database'
+ENV MYSQL_USER='ivnard'
+ENV MYSQL_PASSWORD='Orion123'
+ENV MYSQL_ROOT_PASSWORD='Orion123'
+
+
+# COPY ./sample/trx_data.csv /var/lib/mysql-files/
+COPY ./sample/*.csv /var/lib/mysql-files/
+COPY  ./init/my.cnf /etc/mysql/my.cnf
+COPY ./sql-scripts /docker-entrypoint-initdb.d/
+
+# EXPOSE 3306
