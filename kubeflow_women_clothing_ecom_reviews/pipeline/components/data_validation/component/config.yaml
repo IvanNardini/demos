@@ -1,0 +1,14 @@
+raw_path: 'data/raw'
+raw_data: 'Womens Clothing E-Commerce Reviews.csv'
+random_state: 8
+sample_size: 100
+columns:
+  - 'Age'
+  - 'Title'
+  - 'Review Text'
+  - 'Rating'
+  - 'Recommended IND'
+  - 'Positive Feedback Count'
+  - 'Division Name'
+  - 'Department Name'
+  - 'Class Name'

@@ -1,0 +1,122 @@
+name: Run prepare
+inputs:
+- {name: config, type: String}
+- {name: mode, type: String}
+- {name: bucket, type: String}
+- {name: train_path, type: GCSPath}
+- {name: test_path, type: GCSPath}
+- {name: val_path, type: GCSPath}
+outputs:
+- {name: train, type: GCSPath}
+- {name: test, type: GCSPath}
+- {name: val, type: GCSPath}
+implementation:
+  container:
+    image: docker.io/in92/data_prepare:latest
+    command:
+    - sh
+    - -ec
+    - |
+      program_path=$(mktemp)
+      printf "%s" "$0" > "$program_path"
+      python3 -u "$program_path" "$@"
+    - |
+      def run_prepare(config,
+                      mode,
+                      bucket,
+                      train_path,
+                      test_path,
+                      val_path):
+          # Libraries --------------------------------------------------------------------------------------------------------
+          import logging.config
+          import yaml
+          import sys
+          import os
+          from src.prepare import DataPreparer
+          from src.helpers import load_data, save_data
+
+          # Settings ---------------------------------------------------------------------------------------------------------
+          logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
+                              datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+          try:
+              logging.info('Initializing configuration...')
+              stream = open(config, 'r')
+              config = yaml.load(stream=stream, Loader=yaml.FullLoader)
+              preparer = DataPreparer(config=config)
+              input_paths = [train_path, test_path, val_path]
+
+              if mode == 'cloud':
+                  output_paths_gcs = []
+                  for input_path, out_filename in zip(input_paths, config['processed_data']):
+                      data = load_data(input_data=input_path, mode=mode)
+                      processed_data = preparer.transform(data=data)
+                      # TODO: Add metadata in the pipeline
+                      print(processed_data.head(5))
+                      out_path_gcs = save_data(df=processed_data, path=config['processed_path'],
+                                               out_data=out_filename, mode=mode, bucket=bucket)
+                      output_paths_gcs.append(out_path_gcs)
+                  return tuple(output_paths_gcs)
+
+              else:
+                  output_paths = []
+                  for input_filename, out_filename in zip(config['interim_data'], config['processed_data']):
+                      data_path = os.path.join(config['interim_path'], input_filename)
+                      data = load_data(input_data=data_path, mode=mode)
+                      processed_data = preparer.transform(data=data)
+                      # TODO: Add metadata in the pipeline
+                      print(processed_data.head(5))
+                      out_path = save_data(df=processed_data, path=config['processed_path'],
+                                           out_data=out_filename, mode=mode, bucket=bucket)
+                      output_paths.append(out_path)
+                  return tuple(output_paths)
+
+          except RuntimeError as error:
+              logging.info(error)
+              sys.exit(1)
+
+      import argparse
+      _parser = argparse.ArgumentParser(prog='Run prepare', description='')
+      _parser.add_argument("--config", dest="config", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--mode", dest="mode", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--bucket", dest="bucket", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--train-path", dest="train_path", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--test-path", dest="test_path", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--val-path", dest="val_path", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=3)
+      _parsed_args = vars(_parser.parse_args())
+      _output_files = _parsed_args.pop("_output_paths", [])
+
+      _outputs = run_prepare(**_parsed_args)
+
+      _output_serializers = [
+          str,
+          str,
+          str,
+
+      ]
+
+      import os
+      for idx, output_file in enumerate(_output_files):
+          try:
+              os.makedirs(os.path.dirname(output_file))
+          except OSError:
+              pass
+          with open(output_file, 'w') as f:
+              f.write(_output_serializers[idx](_outputs[idx]))
+    args:
+    - --config
+    - {inputValue: config}
+    - --mode
+    - {inputValue: mode}
+    - --bucket
+    - {inputValue: bucket}
+    - --train-path
+    - {inputValue: train_path}
+    - --test-path
+    - {inputValue: test_path}
+    - --val-path
+    - {inputValue: val_path}
+    - '----output-paths'
+    - {outputPath: train}
+    - {outputPath: test}
+    - {outputPath: val}

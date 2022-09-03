@@ -1,0 +1,18 @@
+processed_path: 'data/processed'
+processed_data:
+  - 'train_processed.csv'
+  - 'test_processed.csv'
+  - 'val_processed.csv'
+random_state: 8
+target: 'recommended_ind'
+text_variables:
+  - 'review_text'
+  - 'review_text_processed'
+est_params:
+  - "tf_idf"
+  - "min_max_scale"
+featured_path: 'data/featured'
+featured_data:
+  - 'train_abt.csv'
+  - 'test_abt.csv'
+  - 'val_abt.csv'

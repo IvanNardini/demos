@@ -1,0 +1,14 @@
+interim_path: 'data/interim'
+interim_data:
+  - 'train_interim.csv'
+  - 'test_interim.csv'
+  - 'val_interim.csv'
+random_state: 8
+lang: 'english'
+text: 'review_text'
+text-processed: 'review_text_processed'
+processed_path: 'data/processed'
+processed_data:
+  - 'train_processed.csv'
+  - 'test_processed.csv'
+  - 'val_processed.csv'

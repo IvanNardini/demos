@@ -1,0 +1,13 @@
+featured_path: 'data/featured'
+featured_data:
+  - 'test_abt.csv'
+  - 'val_abt.csv'
+target: 'recommended_ind'
+random_state: 8
+models:
+  logit:
+    max_iter: 200
+  xgb:
+    use_label_encoder: False
+model_path: 'data/models'
+model_data:

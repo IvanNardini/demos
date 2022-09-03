@@ -1,0 +1,145 @@
+name: Run train
+inputs:
+- {name: config, type: String}
+- {name: mode, type: String}
+- {name: bucket, type: String}
+- {name: train_path, type: GCSPath}
+- {name: test_path, type: GCSPath}
+- {name: classifier, default: gb, optional: true}
+outputs:
+- {name: train, type: GCSPath}
+- {name: test, type: GCSPath}
+- {name: model, type: GCSPath}
+implementation:
+  container:
+    image: docker.io/in92/model_trainer:latest
+    command:
+    - sh
+    - -ec
+    - |
+      program_path=$(mktemp)
+      printf "%s" "$0" > "$program_path"
+      python3 -u "$program_path" "$@"
+    - |
+      def run_train(config,
+                    mode,
+                    bucket,
+                    train_path,
+                    test_path,
+                    classifier='logit'):
+          # Libraries --------------------------------------------------------------------------------------------------------
+
+          import logging.config
+          import yaml
+          import sys
+          import os
+          import pprint
+          from sklearn.linear_model import LogisticRegression
+          from sklearn.tree import DecisionTreeClassifier
+          from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+          from xgboost import XGBClassifier
+          from lightgbm import LGBMClassifier
+          from src.train_model import Modeler
+          from src.helpers import load_data, save_data
+
+          # Settings ---------------------------------------------------------------------------------------------------------
+          logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
+                              datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+
+          logging.info('Initializing configuration...')
+          stream = open(config, 'r')
+          config = yaml.load(stream=stream, Loader=yaml.FullLoader)
+
+          logging.info("Initializing model...")
+          if classifier == 'logit':
+              modeler = Modeler(LogisticRegression, params={'max_iter': config['models']['logit']['max_iter'],
+                                                            'random_state': config['random_state']})
+          if classifier == 'dtree':
+              modeler = Modeler(DecisionTreeClassifier, params={'random_state': config['random_state']})
+          if classifier == 'rf':
+              modeler = Modeler(RandomForestClassifier, params={'random_state': config['random_state']})
+          if classifier == 'gb':
+              modeler = Modeler(GradientBoostingClassifier, params={'random_state': config['random_state']})
+          if classifier == 'xgb':
+              modeler = Modeler(XGBClassifier, params={'use_label_encoder': config['models']['xgb']['use_label_encoder'],
+                                                       'random_state': config['random_state']})
+          if classifier == 'lightgb':
+              modeler = Modeler(LGBMClassifier, params={'random_state': config['random_state']})
+          logging.info(f"{classifier} model successfully initialized!")
+
+          try:
+              logging.info('Starting model training...')
+              if not mode:
+                  train_path = os.path.join(config['featured_path'], config['featured_data'][0])
+                  test_path = os.path.join(config['featured_path'], config['featured_data'][1])
+
+              # Train --------------------------------------------------------------------------------------------------------
+              logging.info(f'Training {classifier} model...')
+              train_data = load_data(input_data=train_path, mode=mode)
+              y_train = train_data[config['target']]
+              x_train = train_data[train_data.columns.difference([config['target']])]
+              modeler.train(x_train, y_train)
+              logging.info(f'{classifier} model successfully trained!')
+
+              logging.info(f'Testing {classifier} model...')
+              # Predict and Evalutate ----------------------------------------------------------------------------------------
+              test_data = load_data(input_data=test_path, mode=mode)
+              x_test = test_data[train_data.columns.difference([config['target']])]
+              y_pred = modeler.predict(x_test)
+              metrics = modeler.evaluate(y_train, y_pred)
+              # TODO: Store metrics. Figure out how to consume in the next stage for model validation.
+              pprint.pprint(metrics)
+
+          except RuntimeError as error:
+              logging.info(error)
+              sys.exit(1)
+
+      import argparse
+      _parser = argparse.ArgumentParser(prog='Run train', description='')
+      _parser.add_argument("--config", dest="config", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--mode", dest="mode", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--bucket", dest="bucket", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--train-path", dest="train_path", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--test-path", dest="test_path", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--classifier", dest="classifier", type=str, required=False, default=argparse.SUPPRESS)
+      _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=3)
+      _parsed_args = vars(_parser.parse_args())
+      _output_files = _parsed_args.pop("_output_paths", [])
+
+      _outputs = run_train(**_parsed_args)
+
+      _output_serializers = [
+          str,
+          str,
+          str,
+
+      ]
+
+      import os
+      for idx, output_file in enumerate(_output_files):
+          try:
+              os.makedirs(os.path.dirname(output_file))
+          except OSError:
+              pass
+          with open(output_file, 'w') as f:
+              f.write(_output_serializers[idx](_outputs[idx]))
+    args:
+    - --config
+    - {inputValue: config}
+    - --mode
+    - {inputValue: mode}
+    - --bucket
+    - {inputValue: bucket}
+    - --train-path
+    - {inputValue: train_path}
+    - --test-path
+    - {inputValue: test_path}
+    - if:
+        cond: {isPresent: classifier}
+        then:
+        - --classifier
+        - {inputValue: classifier}
+    - '----output-paths'
+    - {outputPath: train}
+    - {outputPath: test}
+    - {outputPath: model}

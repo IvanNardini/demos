@@ -1,0 +1,95 @@
+name: Run collect
+inputs:
+- {name: config, type: String}
+- {name: mode, type: String}
+- {name: bucket, type: String}
+outputs:
+- {name: train, type: GCSPath}
+- {name: test, type: GCSPath}
+- {name: val, type: GCSPath}
+implementation:
+  container:
+    image: docker.io/in92/data_collect:latest
+    command:
+    - sh
+    - -ec
+    - |
+      program_path=$(mktemp)
+      printf "%s" "$0" > "$program_path"
+      python3 -u "$program_path" "$@"
+    - |
+      def run_collect(config,
+                      mode,
+                      bucket):
+          # Libraries --------------------------------------------------------------------------------------------------------
+          import logging
+          import yaml
+          from collections import namedtuple
+          import sys
+          from src.collect import DataCollector
+
+          # Settings ---------------------------------------------------------------------------------------------------------
+          logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
+                              datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+          try:
+              logging.info('Initializing configuration...')
+              stream = open(config, 'r')
+              config = yaml.load(stream=stream, Loader=yaml.FullLoader)
+              collector = DataCollector(config=config)
+              raw_df = collector.extract(mode=mode, bucket=bucket)
+              # TODO: Add metadata in the pipeline
+              print(raw_df.head(5))
+              x_train, x_test, x_val, y_train, y_test, y_val = collector.transform(raw_df)
+
+              if mode == 'cloud':
+                  (train_path_gcs, test_path_gcs, val_path_gcs) = collector.load(x_train, x_test, x_val,
+                                                                                 y_train, y_test, y_val, mode=mode,
+                                                                                 bucket=bucket)
+                  out_gcs = namedtuple('output_paths', ['train', 'test', 'val'])
+                  return out_gcs(train_path_gcs, test_path_gcs, val_path_gcs)
+              else:
+                  (train_path, test_path, val_path) = collector.load(x_train, x_test, x_val,
+                                                                     y_train, y_test, y_val, mode=mode, bucket=bucket)
+                  out_path = namedtuple('output_paths', ['train', 'test', 'val'])
+                  return out_path(train_path, test_path, val_path)
+          except RuntimeError as error:
+              logging.info(error)
+              sys.exit(1)
+
+      import argparse
+      _parser = argparse.ArgumentParser(prog='Run collect', description='')
+      _parser.add_argument("--config", dest="config", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--mode", dest="mode", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--bucket", dest="bucket", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=3)
+      _parsed_args = vars(_parser.parse_args())
+      _output_files = _parsed_args.pop("_output_paths", [])
+
+      _outputs = run_collect(**_parsed_args)
+
+      _output_serializers = [
+          str,
+          str,
+          str,
+
+      ]
+
+      import os
+      for idx, output_file in enumerate(_output_files):
+          try:
+              os.makedirs(os.path.dirname(output_file))
+          except OSError:
+              pass
+          with open(output_file, 'w') as f:
+              f.write(_output_serializers[idx](_outputs[idx]))
+    args:
+    - --config
+    - {inputValue: config}
+    - --mode
+    - {inputValue: mode}
+    - --bucket
+    - {inputValue: bucket}
+    - '----output-paths'
+    - {outputPath: train}
+    - {outputPath: test}
+    - {outputPath: val}

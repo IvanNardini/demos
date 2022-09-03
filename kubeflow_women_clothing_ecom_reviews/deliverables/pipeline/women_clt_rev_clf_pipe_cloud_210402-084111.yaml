@@ -1,0 +1,2062 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: women-clothing-reviews-classification-ml-pipeline-
+  annotations: {pipelines.kubeflow.org/kfp_sdk_version: 1.4.0, pipelines.kubeflow.org/pipeline_compilation_time: '2021-04-02T08:41:11.509549',
+    pipelines.kubeflow.org/pipeline_spec: '{"description": "An example of Machine
+      Learning Pipeline", "inputs": [{"default": "config.yaml", "name": "config_file",
+      "optional": true}, {"name": "mode", "optional": true}, {"name": "bucket", "optional":
+      true}], "name": "Women Clothing Reviews Classification ML Pipeline"}'}
+  labels: {pipelines.kubeflow.org/kfp_sdk_version: 1.4.0}
+spec:
+  entrypoint: women-clothing-reviews-classification-ml-pipeline
+  templates:
+  - name: run-collect
+    container:
+      args: [--config, '{{inputs.parameters.config_file}}', --mode, '{{inputs.parameters.mode}}',
+        --bucket, '{{inputs.parameters.bucket}}', '----output-paths', /tmp/outputs/train/data,
+        /tmp/outputs/test/data, /tmp/outputs/val/data]
+      command:
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def run_collect(config,
+                        mode,
+                        bucket):
+            # Libraries --------------------------------------------------------------------------------------------------------
+            import logging
+            import yaml
+            from collections import namedtuple
+            import sys
+            from src.collect import DataCollector
+
+            # Settings ---------------------------------------------------------------------------------------------------------
+            logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
+                                datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+            try:
+                logging.info('Initializing configuration...')
+                stream = open(config, 'r')
+                config = yaml.load(stream=stream, Loader=yaml.FullLoader)
+                collector = DataCollector(config=config)
+                raw_df = collector.extract(mode=mode, bucket=bucket)
+                # TODO: Add metadata in the pipeline
+                print(raw_df.head(5))
+                x_train, x_test, x_val, y_train, y_test, y_val = collector.transform(raw_df)
+
+                if mode == 'cloud':
+                    (train_path_gcs, test_path_gcs, val_path_gcs) = collector.load(x_train, x_test, x_val,
+                                                                                   y_train, y_test, y_val, mode=mode,
+                                                                                   bucket=bucket)
+                    out_gcs = namedtuple('output_paths', ['train', 'test', 'val'])
+                    return out_gcs(train_path_gcs, test_path_gcs, val_path_gcs)
+                else:
+                    (train_path, test_path, val_path) = collector.load(x_train, x_test, x_val,
+                                                                       y_train, y_test, y_val, mode=mode, bucket=bucket)
+                    out_path = namedtuple('output_paths', ['train', 'test', 'val'])
+                    return out_path(train_path, test_path, val_path)
+            except RuntimeError as error:
+                logging.info(error)
+                sys.exit(1)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Run collect', description='')
+        _parser.add_argument("--config", dest="config", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--mode", dest="mode", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--bucket", dest="bucket", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=3)
+        _parsed_args = vars(_parser.parse_args())
+        _output_files = _parsed_args.pop("_output_paths", [])
+
+        _outputs = run_collect(**_parsed_args)
+
+        _output_serializers = [
+            str,
+            str,
+            str,
+
+        ]
+
+        import os
+        for idx, output_file in enumerate(_output_files):
+            try:
+                os.makedirs(os.path.dirname(output_file))
+            except OSError:
+                pass
+            with open(output_file, 'w') as f:
+                f.write(_output_serializers[idx](_outputs[idx]))
+      env:
+      - {name: GOOGLE_APPLICATION_CREDENTIALS, value: /secret/gcp-credentials/user-gcp-sa.json}
+      - {name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE, value: /secret/gcp-credentials/user-gcp-sa.json}
+      image: docker.io/in92/data_collect:latest
+      volumeMounts:
+      - {mountPath: /secret/gcp-credentials, name: gcp-credentials-user-gcp-sa}
+    inputs:
+      parameters:
+      - {name: bucket}
+      - {name: config_file}
+      - {name: mode}
+    outputs:
+      parameters:
+      - name: run-collect-test
+        valueFrom: {path: /tmp/outputs/test/data}
+      - name: run-collect-train
+        valueFrom: {path: /tmp/outputs/train/data}
+      - name: run-collect-val
+        valueFrom: {path: /tmp/outputs/val/data}
+      artifacts:
+      - {name: run-collect-test, path: /tmp/outputs/test/data}
+      - {name: run-collect-train, path: /tmp/outputs/train/data}
+      - {name: run-collect-val, path: /tmp/outputs/val/data}
+    metadata:
+      annotations: {pipelines.kubeflow.org/task_display_name: Data Collection node,
+        pipelines.kubeflow.org/component_spec: '{"implementation": {"container": {"args":
+          ["--config", {"inputValue": "config"}, "--mode", {"inputValue": "mode"},
+          "--bucket", {"inputValue": "bucket"}, "----output-paths", {"outputPath":
+          "train"}, {"outputPath": "test"}, {"outputPath": "val"}], "command": ["sh",
+          "-ec", "program_path=$(mktemp)\nprintf \"%s\" \"$0\" > \"$program_path\"\npython3
+          -u \"$program_path\" \"$@\"\n", "def run_collect(config,\n                mode,\n                bucket):\n    #
+          Libraries --------------------------------------------------------------------------------------------------------\n    import
+          logging\n    import yaml\n    from collections import namedtuple\n    import
+          sys\n    from src.collect import DataCollector\n\n    # Settings ---------------------------------------------------------------------------------------------------------\n    logging.basicConfig(format=''%(asctime)s
+          %(levelname)s %(message)s'',\n                        datefmt=''%m/%d/%Y
+          %I:%M:%S %p'', level=logging.INFO)\n    try:\n        logging.info(''Initializing
+          configuration...'')\n        stream = open(config, ''r'')\n        config
+          = yaml.load(stream=stream, Loader=yaml.FullLoader)\n        collector =
+          DataCollector(config=config)\n        raw_df = collector.extract(mode=mode,
+          bucket=bucket)\n        # TODO: Add metadata in the pipeline\n        print(raw_df.head(5))\n        x_train,
+          x_test, x_val, y_train, y_test, y_val = collector.transform(raw_df)\n\n        if
+          mode == ''cloud'':\n            (train_path_gcs, test_path_gcs, val_path_gcs)
+          = collector.load(x_train, x_test, x_val,\n                                                                           y_train,
+          y_test, y_val, mode=mode,\n                                                                           bucket=bucket)\n            out_gcs
+          = namedtuple(''output_paths'', [''train'', ''test'', ''val''])\n            return
+          out_gcs(train_path_gcs, test_path_gcs, val_path_gcs)\n        else:\n            (train_path,
+          test_path, val_path) = collector.load(x_train, x_test, x_val,\n                                                               y_train,
+          y_test, y_val, mode=mode, bucket=bucket)\n            out_path = namedtuple(''output_paths'',
+          [''train'', ''test'', ''val''])\n            return out_path(train_path,
+          test_path, val_path)\n    except RuntimeError as error:\n        logging.info(error)\n        sys.exit(1)\n\nimport
+          argparse\n_parser = argparse.ArgumentParser(prog=''Run collect'', description='''')\n_parser.add_argument(\"--config\",
+          dest=\"config\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--mode\",
+          dest=\"mode\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--bucket\",
+          dest=\"bucket\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"----output-paths\",
+          dest=\"_output_paths\", type=str, nargs=3)\n_parsed_args = vars(_parser.parse_args())\n_output_files
+          = _parsed_args.pop(\"_output_paths\", [])\n\n_outputs = run_collect(**_parsed_args)\n\n_output_serializers
+          = [\n    str,\n    str,\n    str,\n\n]\n\nimport os\nfor idx, output_file
+          in enumerate(_output_files):\n    try:\n        os.makedirs(os.path.dirname(output_file))\n    except
+          OSError:\n        pass\n    with open(output_file, ''w'') as f:\n        f.write(_output_serializers[idx](_outputs[idx]))\n"],
+          "image": "docker.io/in92/data_collect:latest"}}, "inputs": [{"name": "config",
+          "type": "String"}, {"name": "mode", "type": "String"}, {"name": "bucket",
+          "type": "String"}], "name": "Run collect", "outputs": [{"name": "train",
+          "type": "GCSPath"}, {"name": "test", "type": "GCSPath"}, {"name": "val",
+          "type": "GCSPath"}]}', pipelines.kubeflow.org/component_ref: '{"digest":
+          "dd0fba3478e12e2e15c1d66bd30cf1dc73edea8b2419250f4dd192b423f04a75", "url":
+          "../deliverables/components/data_collection/component.yaml"}', pipelines.kubeflow.org/arguments.parameters: '{"bucket":
+          "{{inputs.parameters.bucket}}", "config": "{{inputs.parameters.config_file}}",
+          "mode": "{{inputs.parameters.mode}}"}'}
+    volumes:
+    - name: gcp-credentials-user-gcp-sa
+      secret: {secretName: user-gcp-sa}
+  - name: run-generate-features
+    container:
+      args: [--config, '{{inputs.parameters.config_file}}', --mode, '{{inputs.parameters.mode}}',
+        --bucket, '{{inputs.parameters.bucket}}', --train-path, '{{inputs.parameters.run-prepare-train}}',
+        --test-path, '{{inputs.parameters.run-prepare-test}}', --val-path, '{{inputs.parameters.run-prepare-val}}',
+        '----output-paths', /tmp/outputs/train/data, /tmp/outputs/test/data, /tmp/outputs/val/data]
+      command:
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def run_generate_features(config,
+                        mode,
+                        bucket,
+                        train_path,
+                        test_path,
+                        val_path):
+            # Libraries --------------------------------------------------------------------------------------------------------
+            import logging.config
+            import yaml
+            import sys
+            import os
+            from src.generate_features import FeaturesGenerator
+            from src.helpers import load_data, save_data
+
+            # Settings ---------------------------------------------------------------------------------------------------------
+            logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
+                                datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+
+            try:
+                logging.info('Initializing configuration...')
+                stream = open(config, 'r')
+                config = yaml.load(stream=stream, Loader=yaml.FullLoader)
+                feats_generator = FeaturesGenerator(config=config)
+
+                logging.info('Initiating features engineering process...')
+                if mode == 'cloud':
+                    output_paths_gcs = []
+
+                    # Train ----------------------------------------------------------------------------------------------------
+                    train_data = load_data(input_data=train_path, mode=mode)
+                    y_train = train_data[[config['target']]]
+                    x_train = train_data[train_data.columns.difference([config['target']])]
+
+                    feats_generator.fit(data=x_train, est_param=config['est_params'][0])
+                    x_train_tf_idf_df = feats_generator.transform(data=x_train, est_param=config['est_params'][0])
+
+                    feats_generator.fit(data=x_train_tf_idf_df, est_param=config['est_params'][1])
+                    x_train_scaled = feats_generator.transform(data=x_train_tf_idf_df, est_param=config['est_params'][1])
+
+                    train_path_gcs = save_data(x_df=x_train_scaled, y_df=y_train, path=config['featured_path'],
+                                                 out_data=config['featured_data'][0], mode=mode, bucket=bucket)
+                    output_paths_gcs.append(train_path_gcs)
+
+                    # Test - Val -----------------------------------------------------------------------------------------------
+                    for input_path, out_filename in zip([test_path, val_path], config['featured_data'][1:]):
+
+                        data = load_data(input_data=input_path, mode=mode)
+                        y = data[[config['target']]]
+                        x = data[data.columns.difference([config['target']])]
+
+                        x_tf_idf_matrix = feats_generator.transform(data=x, est_param=config['est_params'][0])
+                        x_scaled = feats_generator.transform(data=x_tf_idf_matrix, est_param=config['est_params'][1])
+
+                        x_path_gcs = save_data(x_df=x_scaled, y_df=y, path=config['featured_path'],
+                                                   out_data=out_filename, mode=mode, bucket=bucket)
+
+                        output_paths_gcs.append(x_path_gcs)
+
+                    return tuple(output_paths_gcs)
+                else:
+                    output_paths = []
+                    data_path = os.path.join(config['processed_path'], config['processed_data'][0])
+
+                    # Train ----------------------------------------------------------------------------------------------------
+                    train_data = load_data(input_data=data_path, mode=mode)
+                    y_train = train_data[[config['target']]]
+                    x_train = train_data[train_data.columns.difference([config['target']])]
+
+                    feats_generator.fit(data=x_train, est_param=config['est_params'][0])
+                    x_train_tf_idf_df = feats_generator.transform(data=x_train, est_param=config['est_params'][0])
+
+                    feats_generator.fit(data=x_train_tf_idf_df, est_param=config['est_params'][1])
+                    x_train_scaled = feats_generator.transform(data=x_train_tf_idf_df, est_param=config['est_params'][1])
+
+                    train_path = save_data(x_df=x_train_scaled, y_df=y_train, path=config['featured_path'],
+                                           out_data=config['featured_data'][0], mode=mode, bucket=bucket)
+                    output_paths.append(train_path)
+
+                    # Test - Val -----------------------------------------------------------------------------------------------
+                    for input_path, out_filename in zip(config['processed_data'][1:], config['featured_data'][1:]):
+                        data_path = os.path.join(config['processed_path'], input_path)
+                        data = load_data(input_data=data_path, mode=mode)
+                        y = data[[config['target']]]
+                        x = data[data.columns.difference([config['target']])]
+
+                        x_tf_idf_matrix = feats_generator.transform(data=x, est_param=config['est_params'][0])
+                        x_scaled = feats_generator.transform(data=x_tf_idf_matrix, est_param=config['est_params'][1])
+
+                        x_path = save_data(x_df=x_scaled, y_df=y, path=config['featured_path'],
+                                                   out_data=out_filename, mode=mode, bucket=bucket)
+
+                        output_paths.append(x_path)
+                    return tuple(output_paths)
+
+            except RuntimeError as error:
+                logging.info(error)
+                sys.exit(1)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Run generate features', description='')
+        _parser.add_argument("--config", dest="config", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--mode", dest="mode", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--bucket", dest="bucket", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--train-path", dest="train_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--test-path", dest="test_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--val-path", dest="val_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=3)
+        _parsed_args = vars(_parser.parse_args())
+        _output_files = _parsed_args.pop("_output_paths", [])
+
+        _outputs = run_generate_features(**_parsed_args)
+
+        _output_serializers = [
+            str,
+            str,
+            str,
+
+        ]
+
+        import os
+        for idx, output_file in enumerate(_output_files):
+            try:
+                os.makedirs(os.path.dirname(output_file))
+            except OSError:
+                pass
+            with open(output_file, 'w') as f:
+                f.write(_output_serializers[idx](_outputs[idx]))
+      env:
+      - {name: GOOGLE_APPLICATION_CREDENTIALS, value: /secret/gcp-credentials/user-gcp-sa.json}
+      - {name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE, value: /secret/gcp-credentials/user-gcp-sa.json}
+      image: docker.io/in92/feature_generator:latest
+      resources:
+        limits: {memory: 3G}
+        requests: {memory: 3G}
+      volumeMounts:
+      - {mountPath: /secret/gcp-credentials, name: gcp-credentials-user-gcp-sa}
+    inputs:
+      parameters:
+      - {name: bucket}
+      - {name: config_file}
+      - {name: mode}
+      - {name: run-prepare-test}
+      - {name: run-prepare-train}
+      - {name: run-prepare-val}
+    outputs:
+      parameters:
+      - name: run-generate-features-test
+        valueFrom: {path: /tmp/outputs/test/data}
+      - name: run-generate-features-train
+        valueFrom: {path: /tmp/outputs/train/data}
+      artifacts:
+      - {name: run-generate-features-test, path: /tmp/outputs/test/data}
+      - {name: run-generate-features-train, path: /tmp/outputs/train/data}
+      - {name: run-generate-features-val, path: /tmp/outputs/val/data}
+    metadata:
+      annotations: {pipelines.kubeflow.org/task_display_name: Feature Engineering
+          node, pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": ["--config", {"inputValue": "config"}, "--mode", {"inputValue":
+          "mode"}, "--bucket", {"inputValue": "bucket"}, "--train-path", {"inputValue":
+          "train_path"}, "--test-path", {"inputValue": "test_path"}, "--val-path",
+          {"inputValue": "val_path"}, "----output-paths", {"outputPath": "train"},
+          {"outputPath": "test"}, {"outputPath": "val"}], "command": ["sh", "-ec",
+          "program_path=$(mktemp)\nprintf \"%s\" \"$0\" > \"$program_path\"\npython3
+          -u \"$program_path\" \"$@\"\n", "def run_generate_features(config,\n                mode,\n                bucket,\n                train_path,\n                test_path,\n                val_path):\n    #
+          Libraries --------------------------------------------------------------------------------------------------------\n    import
+          logging.config\n    import yaml\n    import sys\n    import os\n    from
+          src.generate_features import FeaturesGenerator\n    from src.helpers import
+          load_data, save_data\n\n    # Settings ---------------------------------------------------------------------------------------------------------\n    logging.basicConfig(format=''%(asctime)s
+          %(levelname)s %(message)s'',\n                        datefmt=''%m/%d/%Y
+          %I:%M:%S %p'', level=logging.INFO)\n\n    try:\n        logging.info(''Initializing
+          configuration...'')\n        stream = open(config, ''r'')\n        config
+          = yaml.load(stream=stream, Loader=yaml.FullLoader)\n        feats_generator
+          = FeaturesGenerator(config=config)\n\n        logging.info(''Initiating
+          features engineering process...'')\n        if mode == ''cloud'':\n            output_paths_gcs
+          = []\n\n            # Train ----------------------------------------------------------------------------------------------------\n            train_data
+          = load_data(input_data=train_path, mode=mode)\n            y_train = train_data[[config[''target'']]]\n            x_train
+          = train_data[train_data.columns.difference([config[''target'']])]\n\n            feats_generator.fit(data=x_train,
+          est_param=config[''est_params''][0])\n            x_train_tf_idf_df = feats_generator.transform(data=x_train,
+          est_param=config[''est_params''][0])\n\n            feats_generator.fit(data=x_train_tf_idf_df,
+          est_param=config[''est_params''][1])\n            x_train_scaled = feats_generator.transform(data=x_train_tf_idf_df,
+          est_param=config[''est_params''][1])\n\n            train_path_gcs = save_data(x_df=x_train_scaled,
+          y_df=y_train, path=config[''featured_path''],\n                                         out_data=config[''featured_data''][0],
+          mode=mode, bucket=bucket)\n            output_paths_gcs.append(train_path_gcs)\n\n            #
+          Test - Val -----------------------------------------------------------------------------------------------\n            for
+          input_path, out_filename in zip([test_path, val_path], config[''featured_data''][1:]):\n\n                data
+          = load_data(input_data=input_path, mode=mode)\n                y = data[[config[''target'']]]\n                x
+          = data[data.columns.difference([config[''target'']])]\n\n                x_tf_idf_matrix
+          = feats_generator.transform(data=x, est_param=config[''est_params''][0])\n                x_scaled
+          = feats_generator.transform(data=x_tf_idf_matrix, est_param=config[''est_params''][1])\n\n                x_path_gcs
+          = save_data(x_df=x_scaled, y_df=y, path=config[''featured_path''],\n                                           out_data=out_filename,
+          mode=mode, bucket=bucket)\n\n                output_paths_gcs.append(x_path_gcs)\n\n            return
+          tuple(output_paths_gcs)\n        else:\n            output_paths = []\n            data_path
+          = os.path.join(config[''processed_path''], config[''processed_data''][0])\n\n            #
+          Train ----------------------------------------------------------------------------------------------------\n            train_data
+          = load_data(input_data=data_path, mode=mode)\n            y_train = train_data[[config[''target'']]]\n            x_train
+          = train_data[train_data.columns.difference([config[''target'']])]\n\n            feats_generator.fit(data=x_train,
+          est_param=config[''est_params''][0])\n            x_train_tf_idf_df = feats_generator.transform(data=x_train,
+          est_param=config[''est_params''][0])\n\n            feats_generator.fit(data=x_train_tf_idf_df,
+          est_param=config[''est_params''][1])\n            x_train_scaled = feats_generator.transform(data=x_train_tf_idf_df,
+          est_param=config[''est_params''][1])\n\n            train_path = save_data(x_df=x_train_scaled,
+          y_df=y_train, path=config[''featured_path''],\n                                   out_data=config[''featured_data''][0],
+          mode=mode, bucket=bucket)\n            output_paths.append(train_path)\n\n            #
+          Test - Val -----------------------------------------------------------------------------------------------\n            for
+          input_path, out_filename in zip(config[''processed_data''][1:], config[''featured_data''][1:]):\n                data_path
+          = os.path.join(config[''processed_path''], input_path)\n                data
+          = load_data(input_data=data_path, mode=mode)\n                y = data[[config[''target'']]]\n                x
+          = data[data.columns.difference([config[''target'']])]\n\n                x_tf_idf_matrix
+          = feats_generator.transform(data=x, est_param=config[''est_params''][0])\n                x_scaled
+          = feats_generator.transform(data=x_tf_idf_matrix, est_param=config[''est_params''][1])\n\n                x_path
+          = save_data(x_df=x_scaled, y_df=y, path=config[''featured_path''],\n                                           out_data=out_filename,
+          mode=mode, bucket=bucket)\n\n                output_paths.append(x_path)\n            return
+          tuple(output_paths)\n\n    except RuntimeError as error:\n        logging.info(error)\n        sys.exit(1)\n\nimport
+          argparse\n_parser = argparse.ArgumentParser(prog=''Run generate features'',
+          description='''')\n_parser.add_argument(\"--config\", dest=\"config\", type=str,
+          required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--mode\",
+          dest=\"mode\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--bucket\",
+          dest=\"bucket\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--train-path\",
+          dest=\"train_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--test-path\",
+          dest=\"test_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--val-path\",
+          dest=\"val_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"----output-paths\",
+          dest=\"_output_paths\", type=str, nargs=3)\n_parsed_args = vars(_parser.parse_args())\n_output_files
+          = _parsed_args.pop(\"_output_paths\", [])\n\n_outputs = run_generate_features(**_parsed_args)\n\n_output_serializers
+          = [\n    str,\n    str,\n    str,\n\n]\n\nimport os\nfor idx, output_file
+          in enumerate(_output_files):\n    try:\n        os.makedirs(os.path.dirname(output_file))\n    except
+          OSError:\n        pass\n    with open(output_file, ''w'') as f:\n        f.write(_output_serializers[idx](_outputs[idx]))\n"],
+          "image": "docker.io/in92/feature_generator:latest"}}, "inputs": [{"name":
+          "config", "type": "String"}, {"name": "mode", "type": "String"}, {"name":
+          "bucket", "type": "String"}, {"name": "train_path", "type": "GCSPath"},
+          {"name": "test_path", "type": "GCSPath"}, {"name": "val_path", "type": "GCSPath"}],
+          "name": "Run generate features", "outputs": [{"name": "train", "type": "GCSPath"},
+          {"name": "test", "type": "GCSPath"}, {"name": "val", "type": "GCSPath"}]}',
+        pipelines.kubeflow.org/component_ref: '{"digest": "1a1df1cae70ac435fafa63cdd89573c2a00a9f5422803c856d1012d8b87607ee",
+          "url": "../deliverables/components/feature_engineering/component.yaml"}',
+        pipelines.kubeflow.org/arguments.parameters: '{"bucket": "{{inputs.parameters.bucket}}",
+          "config": "{{inputs.parameters.config_file}}", "mode": "{{inputs.parameters.mode}}",
+          "test_path": "{{inputs.parameters.run-prepare-test}}", "train_path": "{{inputs.parameters.run-prepare-train}}",
+          "val_path": "{{inputs.parameters.run-prepare-val}}"}'}
+    volumes:
+    - name: gcp-credentials-user-gcp-sa
+      secret: {secretName: user-gcp-sa}
+  - name: run-prepare
+    container:
+      args: [--config, '{{inputs.parameters.config_file}}', --mode, '{{inputs.parameters.mode}}',
+        --bucket, '{{inputs.parameters.bucket}}', --train-path, '{{inputs.parameters.run-collect-train}}',
+        --test-path, '{{inputs.parameters.run-collect-test}}', --val-path, '{{inputs.parameters.run-collect-val}}',
+        '----output-paths', /tmp/outputs/train/data, /tmp/outputs/test/data, /tmp/outputs/val/data]
+      command:
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def run_prepare(config,
+                        mode,
+                        bucket,
+                        train_path,
+                        test_path,
+                        val_path):
+            # Libraries --------------------------------------------------------------------------------------------------------
+            import logging.config
+            import yaml
+            import sys
+            import os
+            from src.prepare import DataPreparer
+            from src.helpers import load_data, save_data
+
+            # Settings ---------------------------------------------------------------------------------------------------------
+            logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
+                                datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+            try:
+                logging.info('Initializing configuration...')
+                stream = open(config, 'r')
+                config = yaml.load(stream=stream, Loader=yaml.FullLoader)
+                preparer = DataPreparer(config=config)
+                input_paths = [train_path, test_path, val_path]
+
+                if mode == 'cloud':
+                    output_paths_gcs = []
+                    for input_path, out_filename in zip(input_paths, config['processed_data']):
+                        data = load_data(input_data=input_path, mode=mode)
+                        processed_data = preparer.transform(data=data)
+                        # TODO: Add metadata in the pipeline
+                        print(processed_data.head(5))
+                        out_path_gcs = save_data(df=processed_data, path=config['processed_path'],
+                                                 out_data=out_filename, mode=mode, bucket=bucket)
+                        output_paths_gcs.append(out_path_gcs)
+                    return tuple(output_paths_gcs)
+
+                else:
+                    output_paths = []
+                    for input_filename, out_filename in zip(config['interim_data'], config['processed_data']):
+                        data_path = os.path.join(config['interim_path'], input_filename)
+                        data = load_data(input_data=data_path, mode=mode)
+                        processed_data = preparer.transform(data=data)
+                        # TODO: Add metadata in the pipeline
+                        print(processed_data.head(5))
+                        out_path = save_data(df=processed_data, path=config['processed_path'],
+                                             out_data=out_filename, mode=mode, bucket=bucket)
+                        output_paths.append(out_path)
+                    return tuple(output_paths)
+
+            except RuntimeError as error:
+                logging.info(error)
+                sys.exit(1)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Run prepare', description='')
+        _parser.add_argument("--config", dest="config", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--mode", dest="mode", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--bucket", dest="bucket", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--train-path", dest="train_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--test-path", dest="test_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--val-path", dest="val_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=3)
+        _parsed_args = vars(_parser.parse_args())
+        _output_files = _parsed_args.pop("_output_paths", [])
+
+        _outputs = run_prepare(**_parsed_args)
+
+        _output_serializers = [
+            str,
+            str,
+            str,
+
+        ]
+
+        import os
+        for idx, output_file in enumerate(_output_files):
+            try:
+                os.makedirs(os.path.dirname(output_file))
+            except OSError:
+                pass
+            with open(output_file, 'w') as f:
+                f.write(_output_serializers[idx](_outputs[idx]))
+      env:
+      - {name: GOOGLE_APPLICATION_CREDENTIALS, value: /secret/gcp-credentials/user-gcp-sa.json}
+      - {name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE, value: /secret/gcp-credentials/user-gcp-sa.json}
+      image: docker.io/in92/data_prepare:latest
+      volumeMounts:
+      - {mountPath: /secret/gcp-credentials, name: gcp-credentials-user-gcp-sa}
+    inputs:
+      parameters:
+      - {name: bucket}
+      - {name: config_file}
+      - {name: mode}
+      - {name: run-collect-test}
+      - {name: run-collect-train}
+      - {name: run-collect-val}
+    outputs:
+      parameters:
+      - name: run-prepare-test
+        valueFrom: {path: /tmp/outputs/test/data}
+      - name: run-prepare-train
+        valueFrom: {path: /tmp/outputs/train/data}
+      - name: run-prepare-val
+        valueFrom: {path: /tmp/outputs/val/data}
+      artifacts:
+      - {name: run-prepare-test, path: /tmp/outputs/test/data}
+      - {name: run-prepare-train, path: /tmp/outputs/train/data}
+      - {name: run-prepare-val, path: /tmp/outputs/val/data}
+    metadata:
+      annotations: {pipelines.kubeflow.org/task_display_name: Data Preparation node,
+        pipelines.kubeflow.org/component_spec: '{"implementation": {"container": {"args":
+          ["--config", {"inputValue": "config"}, "--mode", {"inputValue": "mode"},
+          "--bucket", {"inputValue": "bucket"}, "--train-path", {"inputValue": "train_path"},
+          "--test-path", {"inputValue": "test_path"}, "--val-path", {"inputValue":
+          "val_path"}, "----output-paths", {"outputPath": "train"}, {"outputPath":
+          "test"}, {"outputPath": "val"}], "command": ["sh", "-ec", "program_path=$(mktemp)\nprintf
+          \"%s\" \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n",
+          "def run_prepare(config,\n                mode,\n                bucket,\n                train_path,\n                test_path,\n                val_path):\n    #
+          Libraries --------------------------------------------------------------------------------------------------------\n    import
+          logging.config\n    import yaml\n    import sys\n    import os\n    from
+          src.prepare import DataPreparer\n    from src.helpers import load_data,
+          save_data\n\n    # Settings ---------------------------------------------------------------------------------------------------------\n    logging.basicConfig(format=''%(asctime)s
+          %(levelname)s %(message)s'',\n                        datefmt=''%m/%d/%Y
+          %I:%M:%S %p'', level=logging.INFO)\n    try:\n        logging.info(''Initializing
+          configuration...'')\n        stream = open(config, ''r'')\n        config
+          = yaml.load(stream=stream, Loader=yaml.FullLoader)\n        preparer = DataPreparer(config=config)\n        input_paths
+          = [train_path, test_path, val_path]\n\n        if mode == ''cloud'':\n            output_paths_gcs
+          = []\n            for input_path, out_filename in zip(input_paths, config[''processed_data'']):\n                data
+          = load_data(input_data=input_path, mode=mode)\n                processed_data
+          = preparer.transform(data=data)\n                # TODO: Add metadata in
+          the pipeline\n                print(processed_data.head(5))\n                out_path_gcs
+          = save_data(df=processed_data, path=config[''processed_path''],\n                                         out_data=out_filename,
+          mode=mode, bucket=bucket)\n                output_paths_gcs.append(out_path_gcs)\n            return
+          tuple(output_paths_gcs)\n\n        else:\n            output_paths = []\n            for
+          input_filename, out_filename in zip(config[''interim_data''], config[''processed_data'']):\n                data_path
+          = os.path.join(config[''interim_path''], input_filename)\n                data
+          = load_data(input_data=data_path, mode=mode)\n                processed_data
+          = preparer.transform(data=data)\n                # TODO: Add metadata in
+          the pipeline\n                print(processed_data.head(5))\n                out_path
+          = save_data(df=processed_data, path=config[''processed_path''],\n                                     out_data=out_filename,
+          mode=mode, bucket=bucket)\n                output_paths.append(out_path)\n            return
+          tuple(output_paths)\n\n    except RuntimeError as error:\n        logging.info(error)\n        sys.exit(1)\n\nimport
+          argparse\n_parser = argparse.ArgumentParser(prog=''Run prepare'', description='''')\n_parser.add_argument(\"--config\",
+          dest=\"config\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--mode\",
+          dest=\"mode\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--bucket\",
+          dest=\"bucket\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--train-path\",
+          dest=\"train_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--test-path\",
+          dest=\"test_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--val-path\",
+          dest=\"val_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"----output-paths\",
+          dest=\"_output_paths\", type=str, nargs=3)\n_parsed_args = vars(_parser.parse_args())\n_output_files
+          = _parsed_args.pop(\"_output_paths\", [])\n\n_outputs = run_prepare(**_parsed_args)\n\n_output_serializers
+          = [\n    str,\n    str,\n    str,\n\n]\n\nimport os\nfor idx, output_file
+          in enumerate(_output_files):\n    try:\n        os.makedirs(os.path.dirname(output_file))\n    except
+          OSError:\n        pass\n    with open(output_file, ''w'') as f:\n        f.write(_output_serializers[idx](_outputs[idx]))\n"],
+          "image": "docker.io/in92/data_prepare:latest"}}, "inputs": [{"name": "config",
+          "type": "String"}, {"name": "mode", "type": "String"}, {"name": "bucket",
+          "type": "String"}, {"name": "train_path", "type": "GCSPath"}, {"name": "test_path",
+          "type": "GCSPath"}, {"name": "val_path", "type": "GCSPath"}], "name": "Run
+          prepare", "outputs": [{"name": "train", "type": "GCSPath"}, {"name": "test",
+          "type": "GCSPath"}, {"name": "val", "type": "GCSPath"}]}', pipelines.kubeflow.org/component_ref: '{"digest":
+          "e433ff1f1e82e163ec6c54a801507bac6c1b3b5579b8b780434dd1d7f63d17f8", "url":
+          "../deliverables/components/data_preparation/component.yaml"}', pipelines.kubeflow.org/arguments.parameters: '{"bucket":
+          "{{inputs.parameters.bucket}}", "config": "{{inputs.parameters.config_file}}",
+          "mode": "{{inputs.parameters.mode}}", "test_path": "{{inputs.parameters.run-collect-test}}",
+          "train_path": "{{inputs.parameters.run-collect-train}}", "val_path": "{{inputs.parameters.run-collect-val}}"}'}
+    volumes:
+    - name: gcp-credentials-user-gcp-sa
+      secret: {secretName: user-gcp-sa}
+  - name: run-train
+    container:
+      args: [--config, '{{inputs.parameters.config_file}}', --mode, '{{inputs.parameters.mode}}',
+        --bucket, '{{inputs.parameters.bucket}}', --train-path, '{{inputs.parameters.run-generate-features-train}}',
+        --test-path, '{{inputs.parameters.run-generate-features-test}}', '----output-paths',
+        /tmp/outputs/train/data, /tmp/outputs/test/data, /tmp/outputs/model/data]
+      command:
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def run_train(config,
+                      mode,
+                      bucket,
+                      train_path,
+                      test_path,
+                      classifier='logit'):
+            # Libraries --------------------------------------------------------------------------------------------------------
+
+            import logging.config
+            import yaml
+            import sys
+            import os
+            import pprint
+            from sklearn.linear_model import LogisticRegression
+            from sklearn.tree import DecisionTreeClassifier
+            from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+            from xgboost import XGBClassifier
+            from lightgbm import LGBMClassifier
+            from src.train_model import Modeler
+            from src.helpers import load_data, save_data
+
+            # Settings ---------------------------------------------------------------------------------------------------------
+            logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
+                                datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+
+            logging.info('Initializing configuration...')
+            stream = open(config, 'r')
+            config = yaml.load(stream=stream, Loader=yaml.FullLoader)
+
+            logging.info("Initializing model...")
+            if classifier == 'logit':
+                modeler = Modeler(LogisticRegression, params={'max_iter': config['models']['logit']['max_iter'],
+                                                              'random_state': config['random_state']})
+            if classifier == 'dtree':
+                modeler = Modeler(DecisionTreeClassifier, params={'random_state': config['random_state']})
+            if classifier == 'rf':
+                modeler = Modeler(RandomForestClassifier, params={'random_state': config['random_state']})
+            if classifier == 'gb':
+                modeler = Modeler(GradientBoostingClassifier, params={'random_state': config['random_state']})
+            if classifier == 'xgb':
+                modeler = Modeler(XGBClassifier, params={'use_label_encoder': config['models']['xgb']['use_label_encoder'],
+                                                         'random_state': config['random_state']})
+            if classifier == 'lightgb':
+                modeler = Modeler(LGBMClassifier, params={'random_state': config['random_state']})
+            logging.info(f"{classifier} model successfully initialized!")
+
+            try:
+                logging.info('Starting model training...')
+                if not mode:
+                    train_path = os.path.join(config['featured_path'], config['featured_data'][0])
+                    test_path = os.path.join(config['featured_path'], config['featured_data'][1])
+
+                # Train --------------------------------------------------------------------------------------------------------
+                logging.info(f'Training {classifier} model...')
+                train_data = load_data(input_data=train_path, mode=mode)
+                y_train = train_data[config['target']]
+                x_train = train_data[train_data.columns.difference([config['target']])]
+                modeler.train(x_train, y_train)
+                logging.info(f'{classifier} model successfully trained!')
+
+                logging.info(f'Testing {classifier} model...')
+                # Predict and Evalutate ----------------------------------------------------------------------------------------
+                test_data = load_data(input_data=test_path, mode=mode)
+                x_test = test_data[train_data.columns.difference([config['target']])]
+                y_pred = modeler.predict(x_test)
+                metrics = modeler.evaluate(y_train, y_pred)
+                # TODO: Store metrics. Figure out how to consume in the next stage for model validation.
+                pprint.pprint(metrics)
+
+            except RuntimeError as error:
+                logging.info(error)
+                sys.exit(1)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Run train', description='')
+        _parser.add_argument("--config", dest="config", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--mode", dest="mode", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--bucket", dest="bucket", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--train-path", dest="train_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--test-path", dest="test_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--classifier", dest="classifier", type=str, required=False, default=argparse.SUPPRESS)
+        _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=3)
+        _parsed_args = vars(_parser.parse_args())
+        _output_files = _parsed_args.pop("_output_paths", [])
+
+        _outputs = run_train(**_parsed_args)
+
+        _output_serializers = [
+            str,
+            str,
+            str,
+
+        ]
+
+        import os
+        for idx, output_file in enumerate(_output_files):
+            try:
+                os.makedirs(os.path.dirname(output_file))
+            except OSError:
+                pass
+            with open(output_file, 'w') as f:
+                f.write(_output_serializers[idx](_outputs[idx]))
+      env:
+      - {name: GOOGLE_APPLICATION_CREDENTIALS, value: /secret/gcp-credentials/user-gcp-sa.json}
+      - {name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE, value: /secret/gcp-credentials/user-gcp-sa.json}
+      image: docker.io/in92/model_trainer:latest
+      resources:
+        limits: {memory: 3G}
+        requests: {memory: 3G}
+      volumeMounts:
+      - {mountPath: /secret/gcp-credentials, name: gcp-credentials-user-gcp-sa}
+    inputs:
+      parameters:
+      - {name: bucket}
+      - {name: config_file}
+      - {name: mode}
+      - {name: run-generate-features-test}
+      - {name: run-generate-features-train}
+    outputs:
+      artifacts:
+      - {name: run-train-model, path: /tmp/outputs/model/data}
+      - {name: run-train-test, path: /tmp/outputs/test/data}
+      - {name: run-train-train, path: /tmp/outputs/train/data}
+    metadata:
+      annotations: {pipelines.kubeflow.org/task_display_name: Logistic Regression
+          node, pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": ["--config", {"inputValue": "config"}, "--mode", {"inputValue":
+          "mode"}, "--bucket", {"inputValue": "bucket"}, "--train-path", {"inputValue":
+          "train_path"}, "--test-path", {"inputValue": "test_path"}, {"if": {"cond":
+          {"isPresent": "classifier"}, "then": ["--classifier", {"inputValue": "classifier"}]}},
+          "----output-paths", {"outputPath": "train"}, {"outputPath": "test"}, {"outputPath":
+          "model"}], "command": ["sh", "-ec", "program_path=$(mktemp)\nprintf \"%s\"
+          \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n", "def
+          run_train(config,\n              mode,\n              bucket,\n              train_path,\n              test_path,\n              classifier=''logit''):\n    #
+          Libraries --------------------------------------------------------------------------------------------------------\n\n    import
+          logging.config\n    import yaml\n    import sys\n    import os\n    import
+          pprint\n    from sklearn.linear_model import LogisticRegression\n    from
+          sklearn.tree import DecisionTreeClassifier\n    from sklearn.ensemble import
+          RandomForestClassifier, GradientBoostingClassifier\n    from xgboost import
+          XGBClassifier\n    from lightgbm import LGBMClassifier\n    from src.train_model
+          import Modeler\n    from src.helpers import load_data, save_data\n\n    #
+          Settings ---------------------------------------------------------------------------------------------------------\n    logging.basicConfig(format=''%(asctime)s
+          %(levelname)s %(message)s'',\n                        datefmt=''%m/%d/%Y
+          %I:%M:%S %p'', level=logging.INFO)\n\n    logging.info(''Initializing configuration...'')\n    stream
+          = open(config, ''r'')\n    config = yaml.load(stream=stream, Loader=yaml.FullLoader)\n\n    logging.info(\"Initializing
+          model...\")\n    if classifier == ''logit'':\n        modeler = Modeler(LogisticRegression,
+          params={''max_iter'': config[''models''][''logit''][''max_iter''],\n                                                      ''random_state'':
+          config[''random_state'']})\n    if classifier == ''dtree'':\n        modeler
+          = Modeler(DecisionTreeClassifier, params={''random_state'': config[''random_state'']})\n    if
+          classifier == ''rf'':\n        modeler = Modeler(RandomForestClassifier,
+          params={''random_state'': config[''random_state'']})\n    if classifier
+          == ''gb'':\n        modeler = Modeler(GradientBoostingClassifier, params={''random_state'':
+          config[''random_state'']})\n    if classifier == ''xgb'':\n        modeler
+          = Modeler(XGBClassifier, params={''use_label_encoder'': config[''models''][''xgb''][''use_label_encoder''],\n                                                 ''random_state'':
+          config[''random_state'']})\n    if classifier == ''lightgb'':\n        modeler
+          = Modeler(LGBMClassifier, params={''random_state'': config[''random_state'']})\n    logging.info(f\"{classifier}
+          model successfully initialized!\")\n\n    try:\n        logging.info(''Starting
+          model training...'')\n        if not mode:\n            train_path = os.path.join(config[''featured_path''],
+          config[''featured_data''][0])\n            test_path = os.path.join(config[''featured_path''],
+          config[''featured_data''][1])\n\n        # Train --------------------------------------------------------------------------------------------------------\n        logging.info(f''Training
+          {classifier} model...'')\n        train_data = load_data(input_data=train_path,
+          mode=mode)\n        y_train = train_data[config[''target'']]\n        x_train
+          = train_data[train_data.columns.difference([config[''target'']])]\n        modeler.train(x_train,
+          y_train)\n        logging.info(f''{classifier} model successfully trained!'')\n\n        logging.info(f''Testing
+          {classifier} model...'')\n        # Predict and Evalutate ----------------------------------------------------------------------------------------\n        test_data
+          = load_data(input_data=test_path, mode=mode)\n        x_test = test_data[train_data.columns.difference([config[''target'']])]\n        y_pred
+          = modeler.predict(x_test)\n        metrics = modeler.evaluate(y_train, y_pred)\n        #
+          TODO: Store metrics. Figure out how to consume in the next stage for model
+          validation.\n        pprint.pprint(metrics)\n\n    except RuntimeError as
+          error:\n        logging.info(error)\n        sys.exit(1)\n\nimport argparse\n_parser
+          = argparse.ArgumentParser(prog=''Run train'', description='''')\n_parser.add_argument(\"--config\",
+          dest=\"config\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--mode\",
+          dest=\"mode\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--bucket\",
+          dest=\"bucket\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--train-path\",
+          dest=\"train_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--test-path\",
+          dest=\"test_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--classifier\",
+          dest=\"classifier\", type=str, required=False, default=argparse.SUPPRESS)\n_parser.add_argument(\"----output-paths\",
+          dest=\"_output_paths\", type=str, nargs=3)\n_parsed_args = vars(_parser.parse_args())\n_output_files
+          = _parsed_args.pop(\"_output_paths\", [])\n\n_outputs = run_train(**_parsed_args)\n\n_output_serializers
+          = [\n    str,\n    str,\n    str,\n\n]\n\nimport os\nfor idx, output_file
+          in enumerate(_output_files):\n    try:\n        os.makedirs(os.path.dirname(output_file))\n    except
+          OSError:\n        pass\n    with open(output_file, ''w'') as f:\n        f.write(_output_serializers[idx](_outputs[idx]))\n"],
+          "image": "docker.io/in92/model_trainer:latest"}}, "inputs": [{"name": "config",
+          "type": "String"}, {"name": "mode", "type": "String"}, {"name": "bucket",
+          "type": "String"}, {"name": "train_path", "type": "GCSPath"}, {"name": "test_path",
+          "type": "GCSPath"}, {"default": "logit", "name": "classifier", "optional":
+          true}], "name": "Run train", "outputs": [{"name": "train", "type": "GCSPath"},
+          {"name": "test", "type": "GCSPath"}, {"name": "model", "type": "GCSPath"}]}',
+        pipelines.kubeflow.org/component_ref: '{"digest": "e76d57885b4585d8a6db782996169681e1a557658e6b4466d4634ee36129abec",
+          "url": "../deliverables/components/model_training/logit/component.yaml"}',
+        pipelines.kubeflow.org/arguments.parameters: '{"bucket": "{{inputs.parameters.bucket}}",
+          "config": "{{inputs.parameters.config_file}}", "mode": "{{inputs.parameters.mode}}",
+          "test_path": "{{inputs.parameters.run-generate-features-test}}", "train_path":
+          "{{inputs.parameters.run-generate-features-train}}"}'}
+    volumes:
+    - name: gcp-credentials-user-gcp-sa
+      secret: {secretName: user-gcp-sa}
+  - name: run-train-2
+    container:
+      args: [--config, '{{inputs.parameters.config_file}}', --mode, '{{inputs.parameters.mode}}',
+        --bucket, '{{inputs.parameters.bucket}}', --train-path, '{{inputs.parameters.run-generate-features-train}}',
+        --test-path, '{{inputs.parameters.run-generate-features-test}}', '----output-paths',
+        /tmp/outputs/train/data, /tmp/outputs/test/data, /tmp/outputs/model/data]
+      command:
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def run_train(config,
+                      mode,
+                      bucket,
+                      train_path,
+                      test_path,
+                      classifier='logit'):
+            # Libraries --------------------------------------------------------------------------------------------------------
+
+            import logging.config
+            import yaml
+            import sys
+            import os
+            import pprint
+            from sklearn.linear_model import LogisticRegression
+            from sklearn.tree import DecisionTreeClassifier
+            from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+            from xgboost import XGBClassifier
+            from lightgbm import LGBMClassifier
+            from src.train_model import Modeler
+            from src.helpers import load_data, save_data
+
+            # Settings ---------------------------------------------------------------------------------------------------------
+            logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
+                                datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+
+            logging.info('Initializing configuration...')
+            stream = open(config, 'r')
+            config = yaml.load(stream=stream, Loader=yaml.FullLoader)
+
+            logging.info("Initializing model...")
+            if classifier == 'logit':
+                modeler = Modeler(LogisticRegression, params={'max_iter': config['models']['logit']['max_iter'],
+                                                              'random_state': config['random_state']})
+            if classifier == 'dtree':
+                modeler = Modeler(DecisionTreeClassifier, params={'random_state': config['random_state']})
+            if classifier == 'rf':
+                modeler = Modeler(RandomForestClassifier, params={'random_state': config['random_state']})
+            if classifier == 'gb':
+                modeler = Modeler(GradientBoostingClassifier, params={'random_state': config['random_state']})
+            if classifier == 'xgb':
+                modeler = Modeler(XGBClassifier, params={'use_label_encoder': config['models']['xgb']['use_label_encoder'],
+                                                         'random_state': config['random_state']})
+            if classifier == 'lightgb':
+                modeler = Modeler(LGBMClassifier, params={'random_state': config['random_state']})
+            logging.info(f"{classifier} model successfully initialized!")
+
+            try:
+                logging.info('Starting model training...')
+                if not mode:
+                    train_path = os.path.join(config['featured_path'], config['featured_data'][0])
+                    test_path = os.path.join(config['featured_path'], config['featured_data'][1])
+
+                # Train --------------------------------------------------------------------------------------------------------
+                logging.info(f'Training {classifier} model...')
+                train_data = load_data(input_data=train_path, mode=mode)
+                y_train = train_data[config['target']]
+                x_train = train_data[train_data.columns.difference([config['target']])]
+                modeler.train(x_train, y_train)
+                logging.info(f'{classifier} model successfully trained!')
+
+                logging.info(f'Testing {classifier} model...')
+                # Predict and Evalutate ----------------------------------------------------------------------------------------
+                test_data = load_data(input_data=test_path, mode=mode)
+                x_test = test_data[train_data.columns.difference([config['target']])]
+                y_pred = modeler.predict(x_test)
+                metrics = modeler.evaluate(y_train, y_pred)
+                # TODO: Store metrics. Figure out how to consume in the next stage for model validation.
+                pprint.pprint(metrics)
+
+            except RuntimeError as error:
+                logging.info(error)
+                sys.exit(1)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Run train', description='')
+        _parser.add_argument("--config", dest="config", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--mode", dest="mode", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--bucket", dest="bucket", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--train-path", dest="train_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--test-path", dest="test_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--classifier", dest="classifier", type=str, required=False, default=argparse.SUPPRESS)
+        _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=3)
+        _parsed_args = vars(_parser.parse_args())
+        _output_files = _parsed_args.pop("_output_paths", [])
+
+        _outputs = run_train(**_parsed_args)
+
+        _output_serializers = [
+            str,
+            str,
+            str,
+
+        ]
+
+        import os
+        for idx, output_file in enumerate(_output_files):
+            try:
+                os.makedirs(os.path.dirname(output_file))
+            except OSError:
+                pass
+            with open(output_file, 'w') as f:
+                f.write(_output_serializers[idx](_outputs[idx]))
+      env:
+      - {name: GOOGLE_APPLICATION_CREDENTIALS, value: /secret/gcp-credentials/user-gcp-sa.json}
+      - {name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE, value: /secret/gcp-credentials/user-gcp-sa.json}
+      image: docker.io/in92/model_trainer:latest
+      resources:
+        limits: {memory: 3G}
+        requests: {memory: 3G}
+      volumeMounts:
+      - {mountPath: /secret/gcp-credentials, name: gcp-credentials-user-gcp-sa}
+    inputs:
+      parameters:
+      - {name: bucket}
+      - {name: config_file}
+      - {name: mode}
+      - {name: run-generate-features-test}
+      - {name: run-generate-features-train}
+    outputs:
+      artifacts:
+      - {name: run-train-2-model, path: /tmp/outputs/model/data}
+      - {name: run-train-2-test, path: /tmp/outputs/test/data}
+      - {name: run-train-2-train, path: /tmp/outputs/train/data}
+    metadata:
+      annotations: {pipelines.kubeflow.org/task_display_name: Decision Tree node,
+        pipelines.kubeflow.org/component_spec: '{"implementation": {"container": {"args":
+          ["--config", {"inputValue": "config"}, "--mode", {"inputValue": "mode"},
+          "--bucket", {"inputValue": "bucket"}, "--train-path", {"inputValue": "train_path"},
+          "--test-path", {"inputValue": "test_path"}, {"if": {"cond": {"isPresent":
+          "classifier"}, "then": ["--classifier", {"inputValue": "classifier"}]}},
+          "----output-paths", {"outputPath": "train"}, {"outputPath": "test"}, {"outputPath":
+          "model"}], "command": ["sh", "-ec", "program_path=$(mktemp)\nprintf \"%s\"
+          \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n", "def
+          run_train(config,\n              mode,\n              bucket,\n              train_path,\n              test_path,\n              classifier=''logit''):\n    #
+          Libraries --------------------------------------------------------------------------------------------------------\n\n    import
+          logging.config\n    import yaml\n    import sys\n    import os\n    import
+          pprint\n    from sklearn.linear_model import LogisticRegression\n    from
+          sklearn.tree import DecisionTreeClassifier\n    from sklearn.ensemble import
+          RandomForestClassifier, GradientBoostingClassifier\n    from xgboost import
+          XGBClassifier\n    from lightgbm import LGBMClassifier\n    from src.train_model
+          import Modeler\n    from src.helpers import load_data, save_data\n\n    #
+          Settings ---------------------------------------------------------------------------------------------------------\n    logging.basicConfig(format=''%(asctime)s
+          %(levelname)s %(message)s'',\n                        datefmt=''%m/%d/%Y
+          %I:%M:%S %p'', level=logging.INFO)\n\n    logging.info(''Initializing configuration...'')\n    stream
+          = open(config, ''r'')\n    config = yaml.load(stream=stream, Loader=yaml.FullLoader)\n\n    logging.info(\"Initializing
+          model...\")\n    if classifier == ''logit'':\n        modeler = Modeler(LogisticRegression,
+          params={''max_iter'': config[''models''][''logit''][''max_iter''],\n                                                      ''random_state'':
+          config[''random_state'']})\n    if classifier == ''dtree'':\n        modeler
+          = Modeler(DecisionTreeClassifier, params={''random_state'': config[''random_state'']})\n    if
+          classifier == ''rf'':\n        modeler = Modeler(RandomForestClassifier,
+          params={''random_state'': config[''random_state'']})\n    if classifier
+          == ''gb'':\n        modeler = Modeler(GradientBoostingClassifier, params={''random_state'':
+          config[''random_state'']})\n    if classifier == ''xgb'':\n        modeler
+          = Modeler(XGBClassifier, params={''use_label_encoder'': config[''models''][''xgb''][''use_label_encoder''],\n                                                 ''random_state'':
+          config[''random_state'']})\n    if classifier == ''lightgb'':\n        modeler
+          = Modeler(LGBMClassifier, params={''random_state'': config[''random_state'']})\n    logging.info(f\"{classifier}
+          model successfully initialized!\")\n\n    try:\n        logging.info(''Starting
+          model training...'')\n        if not mode:\n            train_path = os.path.join(config[''featured_path''],
+          config[''featured_data''][0])\n            test_path = os.path.join(config[''featured_path''],
+          config[''featured_data''][1])\n\n        # Train --------------------------------------------------------------------------------------------------------\n        logging.info(f''Training
+          {classifier} model...'')\n        train_data = load_data(input_data=train_path,
+          mode=mode)\n        y_train = train_data[config[''target'']]\n        x_train
+          = train_data[train_data.columns.difference([config[''target'']])]\n        modeler.train(x_train,
+          y_train)\n        logging.info(f''{classifier} model successfully trained!'')\n\n        logging.info(f''Testing
+          {classifier} model...'')\n        # Predict and Evalutate ----------------------------------------------------------------------------------------\n        test_data
+          = load_data(input_data=test_path, mode=mode)\n        x_test = test_data[train_data.columns.difference([config[''target'']])]\n        y_pred
+          = modeler.predict(x_test)\n        metrics = modeler.evaluate(y_train, y_pred)\n        #
+          TODO: Store metrics. Figure out how to consume in the next stage for model
+          validation.\n        pprint.pprint(metrics)\n\n    except RuntimeError as
+          error:\n        logging.info(error)\n        sys.exit(1)\n\nimport argparse\n_parser
+          = argparse.ArgumentParser(prog=''Run train'', description='''')\n_parser.add_argument(\"--config\",
+          dest=\"config\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--mode\",
+          dest=\"mode\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--bucket\",
+          dest=\"bucket\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--train-path\",
+          dest=\"train_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--test-path\",
+          dest=\"test_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--classifier\",
+          dest=\"classifier\", type=str, required=False, default=argparse.SUPPRESS)\n_parser.add_argument(\"----output-paths\",
+          dest=\"_output_paths\", type=str, nargs=3)\n_parsed_args = vars(_parser.parse_args())\n_output_files
+          = _parsed_args.pop(\"_output_paths\", [])\n\n_outputs = run_train(**_parsed_args)\n\n_output_serializers
+          = [\n    str,\n    str,\n    str,\n\n]\n\nimport os\nfor idx, output_file
+          in enumerate(_output_files):\n    try:\n        os.makedirs(os.path.dirname(output_file))\n    except
+          OSError:\n        pass\n    with open(output_file, ''w'') as f:\n        f.write(_output_serializers[idx](_outputs[idx]))\n"],
+          "image": "docker.io/in92/model_trainer:latest"}}, "inputs": [{"name": "config",
+          "type": "String"}, {"name": "mode", "type": "String"}, {"name": "bucket",
+          "type": "String"}, {"name": "train_path", "type": "GCSPath"}, {"name": "test_path",
+          "type": "GCSPath"}, {"default": "dtree", "name": "classifier", "optional":
+          true}], "name": "Run train", "outputs": [{"name": "train", "type": "GCSPath"},
+          {"name": "test", "type": "GCSPath"}, {"name": "model", "type": "GCSPath"}]}',
+        pipelines.kubeflow.org/component_ref: '{"digest": "0e2764d16043c3bc955e7c6a180d65e9164a920749a4dbc5d0ec80ba3851855c",
+          "url": "../deliverables/components/model_training/dtree/component.yaml"}',
+        pipelines.kubeflow.org/arguments.parameters: '{"bucket": "{{inputs.parameters.bucket}}",
+          "config": "{{inputs.parameters.config_file}}", "mode": "{{inputs.parameters.mode}}",
+          "test_path": "{{inputs.parameters.run-generate-features-test}}", "train_path":
+          "{{inputs.parameters.run-generate-features-train}}"}'}
+    volumes:
+    - name: gcp-credentials-user-gcp-sa
+      secret: {secretName: user-gcp-sa}
+  - name: run-train-3
+    container:
+      args: [--config, '{{inputs.parameters.config_file}}', --mode, '{{inputs.parameters.mode}}',
+        --bucket, '{{inputs.parameters.bucket}}', --train-path, '{{inputs.parameters.run-generate-features-train}}',
+        --test-path, '{{inputs.parameters.run-generate-features-test}}', '----output-paths',
+        /tmp/outputs/train/data, /tmp/outputs/test/data, /tmp/outputs/model/data]
+      command:
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def run_train(config,
+                      mode,
+                      bucket,
+                      train_path,
+                      test_path,
+                      classifier='logit'):
+            # Libraries --------------------------------------------------------------------------------------------------------
+
+            import logging.config
+            import yaml
+            import sys
+            import os
+            import pprint
+            from sklearn.linear_model import LogisticRegression
+            from sklearn.tree import DecisionTreeClassifier
+            from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+            from xgboost import XGBClassifier
+            from lightgbm import LGBMClassifier
+            from src.train_model import Modeler
+            from src.helpers import load_data, save_data
+
+            # Settings ---------------------------------------------------------------------------------------------------------
+            logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
+                                datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+
+            logging.info('Initializing configuration...')
+            stream = open(config, 'r')
+            config = yaml.load(stream=stream, Loader=yaml.FullLoader)
+
+            logging.info("Initializing model...")
+            if classifier == 'logit':
+                modeler = Modeler(LogisticRegression, params={'max_iter': config['models']['logit']['max_iter'],
+                                                              'random_state': config['random_state']})
+            if classifier == 'dtree':
+                modeler = Modeler(DecisionTreeClassifier, params={'random_state': config['random_state']})
+            if classifier == 'rf':
+                modeler = Modeler(RandomForestClassifier, params={'random_state': config['random_state']})
+            if classifier == 'gb':
+                modeler = Modeler(GradientBoostingClassifier, params={'random_state': config['random_state']})
+            if classifier == 'xgb':
+                modeler = Modeler(XGBClassifier, params={'use_label_encoder': config['models']['xgb']['use_label_encoder'],
+                                                         'random_state': config['random_state']})
+            if classifier == 'lightgb':
+                modeler = Modeler(LGBMClassifier, params={'random_state': config['random_state']})
+            logging.info(f"{classifier} model successfully initialized!")
+
+            try:
+                logging.info('Starting model training...')
+                if not mode:
+                    train_path = os.path.join(config['featured_path'], config['featured_data'][0])
+                    test_path = os.path.join(config['featured_path'], config['featured_data'][1])
+
+                # Train --------------------------------------------------------------------------------------------------------
+                logging.info(f'Training {classifier} model...')
+                train_data = load_data(input_data=train_path, mode=mode)
+                y_train = train_data[config['target']]
+                x_train = train_data[train_data.columns.difference([config['target']])]
+                modeler.train(x_train, y_train)
+                logging.info(f'{classifier} model successfully trained!')
+
+                logging.info(f'Testing {classifier} model...')
+                # Predict and Evalutate ----------------------------------------------------------------------------------------
+                test_data = load_data(input_data=test_path, mode=mode)
+                x_test = test_data[train_data.columns.difference([config['target']])]
+                y_pred = modeler.predict(x_test)
+                metrics = modeler.evaluate(y_train, y_pred)
+                # TODO: Store metrics. Figure out how to consume in the next stage for model validation.
+                pprint.pprint(metrics)
+
+            except RuntimeError as error:
+                logging.info(error)
+                sys.exit(1)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Run train', description='')
+        _parser.add_argument("--config", dest="config", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--mode", dest="mode", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--bucket", dest="bucket", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--train-path", dest="train_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--test-path", dest="test_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--classifier", dest="classifier", type=str, required=False, default=argparse.SUPPRESS)
+        _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=3)
+        _parsed_args = vars(_parser.parse_args())
+        _output_files = _parsed_args.pop("_output_paths", [])
+
+        _outputs = run_train(**_parsed_args)
+
+        _output_serializers = [
+            str,
+            str,
+            str,
+
+        ]
+
+        import os
+        for idx, output_file in enumerate(_output_files):
+            try:
+                os.makedirs(os.path.dirname(output_file))
+            except OSError:
+                pass
+            with open(output_file, 'w') as f:
+                f.write(_output_serializers[idx](_outputs[idx]))
+      env:
+      - {name: GOOGLE_APPLICATION_CREDENTIALS, value: /secret/gcp-credentials/user-gcp-sa.json}
+      - {name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE, value: /secret/gcp-credentials/user-gcp-sa.json}
+      image: docker.io/in92/model_trainer:latest
+      resources:
+        limits: {memory: 3G}
+        requests: {memory: 3G}
+      volumeMounts:
+      - {mountPath: /secret/gcp-credentials, name: gcp-credentials-user-gcp-sa}
+    inputs:
+      parameters:
+      - {name: bucket}
+      - {name: config_file}
+      - {name: mode}
+      - {name: run-generate-features-test}
+      - {name: run-generate-features-train}
+    outputs:
+      artifacts:
+      - {name: run-train-3-model, path: /tmp/outputs/model/data}
+      - {name: run-train-3-test, path: /tmp/outputs/test/data}
+      - {name: run-train-3-train, path: /tmp/outputs/train/data}
+    metadata:
+      annotations: {pipelines.kubeflow.org/task_display_name: Gradient Boosting node,
+        pipelines.kubeflow.org/component_spec: '{"implementation": {"container": {"args":
+          ["--config", {"inputValue": "config"}, "--mode", {"inputValue": "mode"},
+          "--bucket", {"inputValue": "bucket"}, "--train-path", {"inputValue": "train_path"},
+          "--test-path", {"inputValue": "test_path"}, {"if": {"cond": {"isPresent":
+          "classifier"}, "then": ["--classifier", {"inputValue": "classifier"}]}},
+          "----output-paths", {"outputPath": "train"}, {"outputPath": "test"}, {"outputPath":
+          "model"}], "command": ["sh", "-ec", "program_path=$(mktemp)\nprintf \"%s\"
+          \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n", "def
+          run_train(config,\n              mode,\n              bucket,\n              train_path,\n              test_path,\n              classifier=''logit''):\n    #
+          Libraries --------------------------------------------------------------------------------------------------------\n\n    import
+          logging.config\n    import yaml\n    import sys\n    import os\n    import
+          pprint\n    from sklearn.linear_model import LogisticRegression\n    from
+          sklearn.tree import DecisionTreeClassifier\n    from sklearn.ensemble import
+          RandomForestClassifier, GradientBoostingClassifier\n    from xgboost import
+          XGBClassifier\n    from lightgbm import LGBMClassifier\n    from src.train_model
+          import Modeler\n    from src.helpers import load_data, save_data\n\n    #
+          Settings ---------------------------------------------------------------------------------------------------------\n    logging.basicConfig(format=''%(asctime)s
+          %(levelname)s %(message)s'',\n                        datefmt=''%m/%d/%Y
+          %I:%M:%S %p'', level=logging.INFO)\n\n    logging.info(''Initializing configuration...'')\n    stream
+          = open(config, ''r'')\n    config = yaml.load(stream=stream, Loader=yaml.FullLoader)\n\n    logging.info(\"Initializing
+          model...\")\n    if classifier == ''logit'':\n        modeler = Modeler(LogisticRegression,
+          params={''max_iter'': config[''models''][''logit''][''max_iter''],\n                                                      ''random_state'':
+          config[''random_state'']})\n    if classifier == ''dtree'':\n        modeler
+          = Modeler(DecisionTreeClassifier, params={''random_state'': config[''random_state'']})\n    if
+          classifier == ''rf'':\n        modeler = Modeler(RandomForestClassifier,
+          params={''random_state'': config[''random_state'']})\n    if classifier
+          == ''gb'':\n        modeler = Modeler(GradientBoostingClassifier, params={''random_state'':
+          config[''random_state'']})\n    if classifier == ''xgb'':\n        modeler
+          = Modeler(XGBClassifier, params={''use_label_encoder'': config[''models''][''xgb''][''use_label_encoder''],\n                                                 ''random_state'':
+          config[''random_state'']})\n    if classifier == ''lightgb'':\n        modeler
+          = Modeler(LGBMClassifier, params={''random_state'': config[''random_state'']})\n    logging.info(f\"{classifier}
+          model successfully initialized!\")\n\n    try:\n        logging.info(''Starting
+          model training...'')\n        if not mode:\n            train_path = os.path.join(config[''featured_path''],
+          config[''featured_data''][0])\n            test_path = os.path.join(config[''featured_path''],
+          config[''featured_data''][1])\n\n        # Train --------------------------------------------------------------------------------------------------------\n        logging.info(f''Training
+          {classifier} model...'')\n        train_data = load_data(input_data=train_path,
+          mode=mode)\n        y_train = train_data[config[''target'']]\n        x_train
+          = train_data[train_data.columns.difference([config[''target'']])]\n        modeler.train(x_train,
+          y_train)\n        logging.info(f''{classifier} model successfully trained!'')\n\n        logging.info(f''Testing
+          {classifier} model...'')\n        # Predict and Evalutate ----------------------------------------------------------------------------------------\n        test_data
+          = load_data(input_data=test_path, mode=mode)\n        x_test = test_data[train_data.columns.difference([config[''target'']])]\n        y_pred
+          = modeler.predict(x_test)\n        metrics = modeler.evaluate(y_train, y_pred)\n        #
+          TODO: Store metrics. Figure out how to consume in the next stage for model
+          validation.\n        pprint.pprint(metrics)\n\n    except RuntimeError as
+          error:\n        logging.info(error)\n        sys.exit(1)\n\nimport argparse\n_parser
+          = argparse.ArgumentParser(prog=''Run train'', description='''')\n_parser.add_argument(\"--config\",
+          dest=\"config\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--mode\",
+          dest=\"mode\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--bucket\",
+          dest=\"bucket\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--train-path\",
+          dest=\"train_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--test-path\",
+          dest=\"test_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--classifier\",
+          dest=\"classifier\", type=str, required=False, default=argparse.SUPPRESS)\n_parser.add_argument(\"----output-paths\",
+          dest=\"_output_paths\", type=str, nargs=3)\n_parsed_args = vars(_parser.parse_args())\n_output_files
+          = _parsed_args.pop(\"_output_paths\", [])\n\n_outputs = run_train(**_parsed_args)\n\n_output_serializers
+          = [\n    str,\n    str,\n    str,\n\n]\n\nimport os\nfor idx, output_file
+          in enumerate(_output_files):\n    try:\n        os.makedirs(os.path.dirname(output_file))\n    except
+          OSError:\n        pass\n    with open(output_file, ''w'') as f:\n        f.write(_output_serializers[idx](_outputs[idx]))\n"],
+          "image": "docker.io/in92/model_trainer:latest"}}, "inputs": [{"name": "config",
+          "type": "String"}, {"name": "mode", "type": "String"}, {"name": "bucket",
+          "type": "String"}, {"name": "train_path", "type": "GCSPath"}, {"name": "test_path",
+          "type": "GCSPath"}, {"default": "gb", "name": "classifier", "optional":
+          true}], "name": "Run train", "outputs": [{"name": "train", "type": "GCSPath"},
+          {"name": "test", "type": "GCSPath"}, {"name": "model", "type": "GCSPath"}]}',
+        pipelines.kubeflow.org/component_ref: '{"digest": "c82c9c9ec0216f7b0268b33d53c127e435d71c842d172c3b8eaeceead0c8afa6",
+          "url": "../deliverables/components/model_training/gb/component.yaml"}',
+        pipelines.kubeflow.org/arguments.parameters: '{"bucket": "{{inputs.parameters.bucket}}",
+          "config": "{{inputs.parameters.config_file}}", "mode": "{{inputs.parameters.mode}}",
+          "test_path": "{{inputs.parameters.run-generate-features-test}}", "train_path":
+          "{{inputs.parameters.run-generate-features-train}}"}'}
+    volumes:
+    - name: gcp-credentials-user-gcp-sa
+      secret: {secretName: user-gcp-sa}
+  - name: run-train-4
+    container:
+      args: [--config, '{{inputs.parameters.config_file}}', --mode, '{{inputs.parameters.mode}}',
+        --bucket, '{{inputs.parameters.bucket}}', --train-path, '{{inputs.parameters.run-generate-features-train}}',
+        --test-path, '{{inputs.parameters.run-generate-features-test}}', '----output-paths',
+        /tmp/outputs/train/data, /tmp/outputs/test/data, /tmp/outputs/model/data]
+      command:
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def run_train(config,
+                      mode,
+                      bucket,
+                      train_path,
+                      test_path,
+                      classifier='logit'):
+            # Libraries --------------------------------------------------------------------------------------------------------
+
+            import logging.config
+            import yaml
+            import sys
+            import os
+            import pprint
+            from sklearn.linear_model import LogisticRegression
+            from sklearn.tree import DecisionTreeClassifier
+            from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+            from xgboost import XGBClassifier
+            from lightgbm import LGBMClassifier
+            from src.train_model import Modeler
+            from src.helpers import load_data, save_data
+
+            # Settings ---------------------------------------------------------------------------------------------------------
+            logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
+                                datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+
+            logging.info('Initializing configuration...')
+            stream = open(config, 'r')
+            config = yaml.load(stream=stream, Loader=yaml.FullLoader)
+
+            logging.info("Initializing model...")
+            if classifier == 'logit':
+                modeler = Modeler(LogisticRegression, params={'max_iter': config['models']['logit']['max_iter'],
+                                                              'random_state': config['random_state']})
+            if classifier == 'dtree':
+                modeler = Modeler(DecisionTreeClassifier, params={'random_state': config['random_state']})
+            if classifier == 'rf':
+                modeler = Modeler(RandomForestClassifier, params={'random_state': config['random_state']})
+            if classifier == 'gb':
+                modeler = Modeler(GradientBoostingClassifier, params={'random_state': config['random_state']})
+            if classifier == 'xgb':
+                modeler = Modeler(XGBClassifier, params={'use_label_encoder': config['models']['xgb']['use_label_encoder'],
+                                                         'random_state': config['random_state']})
+            if classifier == 'lightgb':
+                modeler = Modeler(LGBMClassifier, params={'random_state': config['random_state']})
+            logging.info(f"{classifier} model successfully initialized!")
+
+            try:
+                logging.info('Starting model training...')
+                if not mode:
+                    train_path = os.path.join(config['featured_path'], config['featured_data'][0])
+                    test_path = os.path.join(config['featured_path'], config['featured_data'][1])
+
+                # Train --------------------------------------------------------------------------------------------------------
+                logging.info(f'Training {classifier} model...')
+                train_data = load_data(input_data=train_path, mode=mode)
+                y_train = train_data[config['target']]
+                x_train = train_data[train_data.columns.difference([config['target']])]
+                modeler.train(x_train, y_train)
+                logging.info(f'{classifier} model successfully trained!')
+
+                logging.info(f'Testing {classifier} model...')
+                # Predict and Evalutate ----------------------------------------------------------------------------------------
+                test_data = load_data(input_data=test_path, mode=mode)
+                x_test = test_data[train_data.columns.difference([config['target']])]
+                y_pred = modeler.predict(x_test)
+                metrics = modeler.evaluate(y_train, y_pred)
+                # TODO: Store metrics. Figure out how to consume in the next stage for model validation.
+                pprint.pprint(metrics)
+
+            except RuntimeError as error:
+                logging.info(error)
+                sys.exit(1)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Run train', description='')
+        _parser.add_argument("--config", dest="config", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--mode", dest="mode", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--bucket", dest="bucket", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--train-path", dest="train_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--test-path", dest="test_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--classifier", dest="classifier", type=str, required=False, default=argparse.SUPPRESS)
+        _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=3)
+        _parsed_args = vars(_parser.parse_args())
+        _output_files = _parsed_args.pop("_output_paths", [])
+
+        _outputs = run_train(**_parsed_args)
+
+        _output_serializers = [
+            str,
+            str,
+            str,
+
+        ]
+
+        import os
+        for idx, output_file in enumerate(_output_files):
+            try:
+                os.makedirs(os.path.dirname(output_file))
+            except OSError:
+                pass
+            with open(output_file, 'w') as f:
+                f.write(_output_serializers[idx](_outputs[idx]))
+      env:
+      - {name: GOOGLE_APPLICATION_CREDENTIALS, value: /secret/gcp-credentials/user-gcp-sa.json}
+      - {name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE, value: /secret/gcp-credentials/user-gcp-sa.json}
+      image: docker.io/in92/model_trainer:latest
+      resources:
+        limits: {memory: 3G}
+        requests: {memory: 3G}
+      volumeMounts:
+      - {mountPath: /secret/gcp-credentials, name: gcp-credentials-user-gcp-sa}
+    inputs:
+      parameters:
+      - {name: bucket}
+      - {name: config_file}
+      - {name: mode}
+      - {name: run-generate-features-test}
+      - {name: run-generate-features-train}
+    outputs:
+      artifacts:
+      - {name: run-train-4-model, path: /tmp/outputs/model/data}
+      - {name: run-train-4-test, path: /tmp/outputs/test/data}
+      - {name: run-train-4-train, path: /tmp/outputs/train/data}
+    metadata:
+      annotations: {pipelines.kubeflow.org/task_display_name: Random Forest node,
+        pipelines.kubeflow.org/component_spec: '{"implementation": {"container": {"args":
+          ["--config", {"inputValue": "config"}, "--mode", {"inputValue": "mode"},
+          "--bucket", {"inputValue": "bucket"}, "--train-path", {"inputValue": "train_path"},
+          "--test-path", {"inputValue": "test_path"}, {"if": {"cond": {"isPresent":
+          "classifier"}, "then": ["--classifier", {"inputValue": "classifier"}]}},
+          "----output-paths", {"outputPath": "train"}, {"outputPath": "test"}, {"outputPath":
+          "model"}], "command": ["sh", "-ec", "program_path=$(mktemp)\nprintf \"%s\"
+          \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n", "def
+          run_train(config,\n              mode,\n              bucket,\n              train_path,\n              test_path,\n              classifier=''logit''):\n    #
+          Libraries --------------------------------------------------------------------------------------------------------\n\n    import
+          logging.config\n    import yaml\n    import sys\n    import os\n    import
+          pprint\n    from sklearn.linear_model import LogisticRegression\n    from
+          sklearn.tree import DecisionTreeClassifier\n    from sklearn.ensemble import
+          RandomForestClassifier, GradientBoostingClassifier\n    from xgboost import
+          XGBClassifier\n    from lightgbm import LGBMClassifier\n    from src.train_model
+          import Modeler\n    from src.helpers import load_data, save_data\n\n    #
+          Settings ---------------------------------------------------------------------------------------------------------\n    logging.basicConfig(format=''%(asctime)s
+          %(levelname)s %(message)s'',\n                        datefmt=''%m/%d/%Y
+          %I:%M:%S %p'', level=logging.INFO)\n\n    logging.info(''Initializing configuration...'')\n    stream
+          = open(config, ''r'')\n    config = yaml.load(stream=stream, Loader=yaml.FullLoader)\n\n    logging.info(\"Initializing
+          model...\")\n    if classifier == ''logit'':\n        modeler = Modeler(LogisticRegression,
+          params={''max_iter'': config[''models''][''logit''][''max_iter''],\n                                                      ''random_state'':
+          config[''random_state'']})\n    if classifier == ''dtree'':\n        modeler
+          = Modeler(DecisionTreeClassifier, params={''random_state'': config[''random_state'']})\n    if
+          classifier == ''rf'':\n        modeler = Modeler(RandomForestClassifier,
+          params={''random_state'': config[''random_state'']})\n    if classifier
+          == ''gb'':\n        modeler = Modeler(GradientBoostingClassifier, params={''random_state'':
+          config[''random_state'']})\n    if classifier == ''xgb'':\n        modeler
+          = Modeler(XGBClassifier, params={''use_label_encoder'': config[''models''][''xgb''][''use_label_encoder''],\n                                                 ''random_state'':
+          config[''random_state'']})\n    if classifier == ''lightgb'':\n        modeler
+          = Modeler(LGBMClassifier, params={''random_state'': config[''random_state'']})\n    logging.info(f\"{classifier}
+          model successfully initialized!\")\n\n    try:\n        logging.info(''Starting
+          model training...'')\n        if not mode:\n            train_path = os.path.join(config[''featured_path''],
+          config[''featured_data''][0])\n            test_path = os.path.join(config[''featured_path''],
+          config[''featured_data''][1])\n\n        # Train --------------------------------------------------------------------------------------------------------\n        logging.info(f''Training
+          {classifier} model...'')\n        train_data = load_data(input_data=train_path,
+          mode=mode)\n        y_train = train_data[config[''target'']]\n        x_train
+          = train_data[train_data.columns.difference([config[''target'']])]\n        modeler.train(x_train,
+          y_train)\n        logging.info(f''{classifier} model successfully trained!'')\n\n        logging.info(f''Testing
+          {classifier} model...'')\n        # Predict and Evalutate ----------------------------------------------------------------------------------------\n        test_data
+          = load_data(input_data=test_path, mode=mode)\n        x_test = test_data[train_data.columns.difference([config[''target'']])]\n        y_pred
+          = modeler.predict(x_test)\n        metrics = modeler.evaluate(y_train, y_pred)\n        #
+          TODO: Store metrics. Figure out how to consume in the next stage for model
+          validation.\n        pprint.pprint(metrics)\n\n    except RuntimeError as
+          error:\n        logging.info(error)\n        sys.exit(1)\n\nimport argparse\n_parser
+          = argparse.ArgumentParser(prog=''Run train'', description='''')\n_parser.add_argument(\"--config\",
+          dest=\"config\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--mode\",
+          dest=\"mode\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--bucket\",
+          dest=\"bucket\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--train-path\",
+          dest=\"train_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--test-path\",
+          dest=\"test_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--classifier\",
+          dest=\"classifier\", type=str, required=False, default=argparse.SUPPRESS)\n_parser.add_argument(\"----output-paths\",
+          dest=\"_output_paths\", type=str, nargs=3)\n_parsed_args = vars(_parser.parse_args())\n_output_files
+          = _parsed_args.pop(\"_output_paths\", [])\n\n_outputs = run_train(**_parsed_args)\n\n_output_serializers
+          = [\n    str,\n    str,\n    str,\n\n]\n\nimport os\nfor idx, output_file
+          in enumerate(_output_files):\n    try:\n        os.makedirs(os.path.dirname(output_file))\n    except
+          OSError:\n        pass\n    with open(output_file, ''w'') as f:\n        f.write(_output_serializers[idx](_outputs[idx]))\n"],
+          "image": "docker.io/in92/model_trainer:latest"}}, "inputs": [{"name": "config",
+          "type": "String"}, {"name": "mode", "type": "String"}, {"name": "bucket",
+          "type": "String"}, {"name": "train_path", "type": "GCSPath"}, {"name": "test_path",
+          "type": "GCSPath"}, {"default": "rf", "name": "classifier", "optional":
+          true}], "name": "Run train", "outputs": [{"name": "train", "type": "GCSPath"},
+          {"name": "test", "type": "GCSPath"}, {"name": "model", "type": "GCSPath"}]}',
+        pipelines.kubeflow.org/component_ref: '{"digest": "e394f9d04d7653668e0c1b8afad187a074849db4072d13be22b75898ad74be2c",
+          "url": "../deliverables/components/model_training/rf/component.yaml"}',
+        pipelines.kubeflow.org/arguments.parameters: '{"bucket": "{{inputs.parameters.bucket}}",
+          "config": "{{inputs.parameters.config_file}}", "mode": "{{inputs.parameters.mode}}",
+          "test_path": "{{inputs.parameters.run-generate-features-test}}", "train_path":
+          "{{inputs.parameters.run-generate-features-train}}"}'}
+    volumes:
+    - name: gcp-credentials-user-gcp-sa
+      secret: {secretName: user-gcp-sa}
+  - name: run-train-5
+    container:
+      args: [--config, '{{inputs.parameters.config_file}}', --mode, '{{inputs.parameters.mode}}',
+        --bucket, '{{inputs.parameters.bucket}}', --train-path, '{{inputs.parameters.run-generate-features-train}}',
+        --test-path, '{{inputs.parameters.run-generate-features-test}}', '----output-paths',
+        /tmp/outputs/train/data, /tmp/outputs/test/data, /tmp/outputs/model/data]
+      command:
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def run_train(config,
+                      mode,
+                      bucket,
+                      train_path,
+                      test_path,
+                      classifier='logit'):
+            # Libraries --------------------------------------------------------------------------------------------------------
+
+            import logging.config
+            import yaml
+            import sys
+            import os
+            import pprint
+            from sklearn.linear_model import LogisticRegression
+            from sklearn.tree import DecisionTreeClassifier
+            from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+            from xgboost import XGBClassifier
+            from lightgbm import LGBMClassifier
+            from src.train_model import Modeler
+            from src.helpers import load_data, save_data
+
+            # Settings ---------------------------------------------------------------------------------------------------------
+            logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
+                                datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+
+            logging.info('Initializing configuration...')
+            stream = open(config, 'r')
+            config = yaml.load(stream=stream, Loader=yaml.FullLoader)
+
+            logging.info("Initializing model...")
+            if classifier == 'logit':
+                modeler = Modeler(LogisticRegression, params={'max_iter': config['models']['logit']['max_iter'],
+                                                              'random_state': config['random_state']})
+            if classifier == 'dtree':
+                modeler = Modeler(DecisionTreeClassifier, params={'random_state': config['random_state']})
+            if classifier == 'rf':
+                modeler = Modeler(RandomForestClassifier, params={'random_state': config['random_state']})
+            if classifier == 'gb':
+                modeler = Modeler(GradientBoostingClassifier, params={'random_state': config['random_state']})
+            if classifier == 'xgb':
+                modeler = Modeler(XGBClassifier, params={'use_label_encoder': config['models']['xgb']['use_label_encoder'],
+                                                         'random_state': config['random_state']})
+            if classifier == 'lightgb':
+                modeler = Modeler(LGBMClassifier, params={'random_state': config['random_state']})
+            logging.info(f"{classifier} model successfully initialized!")
+
+            try:
+                logging.info('Starting model training...')
+                if not mode:
+                    train_path = os.path.join(config['featured_path'], config['featured_data'][0])
+                    test_path = os.path.join(config['featured_path'], config['featured_data'][1])
+
+                # Train --------------------------------------------------------------------------------------------------------
+                logging.info(f'Training {classifier} model...')
+                train_data = load_data(input_data=train_path, mode=mode)
+                y_train = train_data[config['target']]
+                x_train = train_data[train_data.columns.difference([config['target']])]
+                modeler.train(x_train, y_train)
+                logging.info(f'{classifier} model successfully trained!')
+
+                logging.info(f'Testing {classifier} model...')
+                # Predict and Evalutate ----------------------------------------------------------------------------------------
+                test_data = load_data(input_data=test_path, mode=mode)
+                x_test = test_data[train_data.columns.difference([config['target']])]
+                y_pred = modeler.predict(x_test)
+                metrics = modeler.evaluate(y_train, y_pred)
+                # TODO: Store metrics. Figure out how to consume in the next stage for model validation.
+                pprint.pprint(metrics)
+
+            except RuntimeError as error:
+                logging.info(error)
+                sys.exit(1)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Run train', description='')
+        _parser.add_argument("--config", dest="config", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--mode", dest="mode", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--bucket", dest="bucket", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--train-path", dest="train_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--test-path", dest="test_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--classifier", dest="classifier", type=str, required=False, default=argparse.SUPPRESS)
+        _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=3)
+        _parsed_args = vars(_parser.parse_args())
+        _output_files = _parsed_args.pop("_output_paths", [])
+
+        _outputs = run_train(**_parsed_args)
+
+        _output_serializers = [
+            str,
+            str,
+            str,
+
+        ]
+
+        import os
+        for idx, output_file in enumerate(_output_files):
+            try:
+                os.makedirs(os.path.dirname(output_file))
+            except OSError:
+                pass
+            with open(output_file, 'w') as f:
+                f.write(_output_serializers[idx](_outputs[idx]))
+      env:
+      - {name: GOOGLE_APPLICATION_CREDENTIALS, value: /secret/gcp-credentials/user-gcp-sa.json}
+      - {name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE, value: /secret/gcp-credentials/user-gcp-sa.json}
+      image: docker.io/in92/model_trainer:latest
+      resources:
+        limits: {memory: 3G}
+        requests: {memory: 3G}
+      volumeMounts:
+      - {mountPath: /secret/gcp-credentials, name: gcp-credentials-user-gcp-sa}
+    inputs:
+      parameters:
+      - {name: bucket}
+      - {name: config_file}
+      - {name: mode}
+      - {name: run-generate-features-test}
+      - {name: run-generate-features-train}
+    outputs:
+      artifacts:
+      - {name: run-train-5-model, path: /tmp/outputs/model/data}
+      - {name: run-train-5-test, path: /tmp/outputs/test/data}
+      - {name: run-train-5-train, path: /tmp/outputs/train/data}
+    metadata:
+      annotations: {pipelines.kubeflow.org/task_display_name: Xgb node, pipelines.kubeflow.org/component_spec: '{"implementation":
+          {"container": {"args": ["--config", {"inputValue": "config"}, "--mode",
+          {"inputValue": "mode"}, "--bucket", {"inputValue": "bucket"}, "--train-path",
+          {"inputValue": "train_path"}, "--test-path", {"inputValue": "test_path"},
+          {"if": {"cond": {"isPresent": "classifier"}, "then": ["--classifier", {"inputValue":
+          "classifier"}]}}, "----output-paths", {"outputPath": "train"}, {"outputPath":
+          "test"}, {"outputPath": "model"}], "command": ["sh", "-ec", "program_path=$(mktemp)\nprintf
+          \"%s\" \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n",
+          "def run_train(config,\n              mode,\n              bucket,\n              train_path,\n              test_path,\n              classifier=''logit''):\n    #
+          Libraries --------------------------------------------------------------------------------------------------------\n\n    import
+          logging.config\n    import yaml\n    import sys\n    import os\n    import
+          pprint\n    from sklearn.linear_model import LogisticRegression\n    from
+          sklearn.tree import DecisionTreeClassifier\n    from sklearn.ensemble import
+          RandomForestClassifier, GradientBoostingClassifier\n    from xgboost import
+          XGBClassifier\n    from lightgbm import LGBMClassifier\n    from src.train_model
+          import Modeler\n    from src.helpers import load_data, save_data\n\n    #
+          Settings ---------------------------------------------------------------------------------------------------------\n    logging.basicConfig(format=''%(asctime)s
+          %(levelname)s %(message)s'',\n                        datefmt=''%m/%d/%Y
+          %I:%M:%S %p'', level=logging.INFO)\n\n    logging.info(''Initializing configuration...'')\n    stream
+          = open(config, ''r'')\n    config = yaml.load(stream=stream, Loader=yaml.FullLoader)\n\n    logging.info(\"Initializing
+          model...\")\n    if classifier == ''logit'':\n        modeler = Modeler(LogisticRegression,
+          params={''max_iter'': config[''models''][''logit''][''max_iter''],\n                                                      ''random_state'':
+          config[''random_state'']})\n    if classifier == ''dtree'':\n        modeler
+          = Modeler(DecisionTreeClassifier, params={''random_state'': config[''random_state'']})\n    if
+          classifier == ''rf'':\n        modeler = Modeler(RandomForestClassifier,
+          params={''random_state'': config[''random_state'']})\n    if classifier
+          == ''gb'':\n        modeler = Modeler(GradientBoostingClassifier, params={''random_state'':
+          config[''random_state'']})\n    if classifier == ''xgb'':\n        modeler
+          = Modeler(XGBClassifier, params={''use_label_encoder'': config[''models''][''xgb''][''use_label_encoder''],\n                                                 ''random_state'':
+          config[''random_state'']})\n    if classifier == ''lightgb'':\n        modeler
+          = Modeler(LGBMClassifier, params={''random_state'': config[''random_state'']})\n    logging.info(f\"{classifier}
+          model successfully initialized!\")\n\n    try:\n        logging.info(''Starting
+          model training...'')\n        if not mode:\n            train_path = os.path.join(config[''featured_path''],
+          config[''featured_data''][0])\n            test_path = os.path.join(config[''featured_path''],
+          config[''featured_data''][1])\n\n        # Train --------------------------------------------------------------------------------------------------------\n        logging.info(f''Training
+          {classifier} model...'')\n        train_data = load_data(input_data=train_path,
+          mode=mode)\n        y_train = train_data[config[''target'']]\n        x_train
+          = train_data[train_data.columns.difference([config[''target'']])]\n        modeler.train(x_train,
+          y_train)\n        logging.info(f''{classifier} model successfully trained!'')\n\n        logging.info(f''Testing
+          {classifier} model...'')\n        # Predict and Evalutate ----------------------------------------------------------------------------------------\n        test_data
+          = load_data(input_data=test_path, mode=mode)\n        x_test = test_data[train_data.columns.difference([config[''target'']])]\n        y_pred
+          = modeler.predict(x_test)\n        metrics = modeler.evaluate(y_train, y_pred)\n        #
+          TODO: Store metrics. Figure out how to consume in the next stage for model
+          validation.\n        pprint.pprint(metrics)\n\n    except RuntimeError as
+          error:\n        logging.info(error)\n        sys.exit(1)\n\nimport argparse\n_parser
+          = argparse.ArgumentParser(prog=''Run train'', description='''')\n_parser.add_argument(\"--config\",
+          dest=\"config\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--mode\",
+          dest=\"mode\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--bucket\",
+          dest=\"bucket\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--train-path\",
+          dest=\"train_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--test-path\",
+          dest=\"test_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--classifier\",
+          dest=\"classifier\", type=str, required=False, default=argparse.SUPPRESS)\n_parser.add_argument(\"----output-paths\",
+          dest=\"_output_paths\", type=str, nargs=3)\n_parsed_args = vars(_parser.parse_args())\n_output_files
+          = _parsed_args.pop(\"_output_paths\", [])\n\n_outputs = run_train(**_parsed_args)\n\n_output_serializers
+          = [\n    str,\n    str,\n    str,\n\n]\n\nimport os\nfor idx, output_file
+          in enumerate(_output_files):\n    try:\n        os.makedirs(os.path.dirname(output_file))\n    except
+          OSError:\n        pass\n    with open(output_file, ''w'') as f:\n        f.write(_output_serializers[idx](_outputs[idx]))\n"],
+          "image": "docker.io/in92/model_trainer:latest"}}, "inputs": [{"name": "config",
+          "type": "String"}, {"name": "mode", "type": "String"}, {"name": "bucket",
+          "type": "String"}, {"name": "train_path", "type": "GCSPath"}, {"name": "test_path",
+          "type": "GCSPath"}, {"default": "xgb", "name": "classifier", "optional":
+          true}], "name": "Run train", "outputs": [{"name": "train", "type": "GCSPath"},
+          {"name": "test", "type": "GCSPath"}, {"name": "model", "type": "GCSPath"}]}',
+        pipelines.kubeflow.org/component_ref: '{"digest": "fdb4f7ff7e21e24f0d5e359f4175293933e7fb6568d691248f3d7823b3eb1c3d",
+          "url": "../deliverables/components/model_training/xgb/component.yaml"}',
+        pipelines.kubeflow.org/arguments.parameters: '{"bucket": "{{inputs.parameters.bucket}}",
+          "config": "{{inputs.parameters.config_file}}", "mode": "{{inputs.parameters.mode}}",
+          "test_path": "{{inputs.parameters.run-generate-features-test}}", "train_path":
+          "{{inputs.parameters.run-generate-features-train}}"}'}
+    volumes:
+    - name: gcp-credentials-user-gcp-sa
+      secret: {secretName: user-gcp-sa}
+  - name: run-train-6
+    container:
+      args: [--config, '{{inputs.parameters.config_file}}', --mode, '{{inputs.parameters.mode}}',
+        --bucket, '{{inputs.parameters.bucket}}', --train-path, '{{inputs.parameters.run-generate-features-train}}',
+        --test-path, '{{inputs.parameters.run-generate-features-test}}', '----output-paths',
+        /tmp/outputs/train/data, /tmp/outputs/test/data, /tmp/outputs/model/data]
+      command:
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def run_train(config,
+                      mode,
+                      bucket,
+                      train_path,
+                      test_path,
+                      classifier='logit'):
+            # Libraries --------------------------------------------------------------------------------------------------------
+
+            import logging.config
+            import yaml
+            import sys
+            import os
+            import pprint
+            from sklearn.linear_model import LogisticRegression
+            from sklearn.tree import DecisionTreeClassifier
+            from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+            from xgboost import XGBClassifier
+            from lightgbm import LGBMClassifier
+            from src.train_model import Modeler
+            from src.helpers import load_data, save_data
+
+            # Settings ---------------------------------------------------------------------------------------------------------
+            logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
+                                datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+
+            logging.info('Initializing configuration...')
+            stream = open(config, 'r')
+            config = yaml.load(stream=stream, Loader=yaml.FullLoader)
+
+            logging.info("Initializing model...")
+            if classifier == 'logit':
+                modeler = Modeler(LogisticRegression, params={'max_iter': config['models']['logit']['max_iter'],
+                                                              'random_state': config['random_state']})
+            if classifier == 'dtree':
+                modeler = Modeler(DecisionTreeClassifier, params={'random_state': config['random_state']})
+            if classifier == 'rf':
+                modeler = Modeler(RandomForestClassifier, params={'random_state': config['random_state']})
+            if classifier == 'gb':
+                modeler = Modeler(GradientBoostingClassifier, params={'random_state': config['random_state']})
+            if classifier == 'xgb':
+                modeler = Modeler(XGBClassifier, params={'use_label_encoder': config['models']['xgb']['use_label_encoder'],
+                                                         'random_state': config['random_state']})
+            if classifier == 'lightgb':
+                modeler = Modeler(LGBMClassifier, params={'random_state': config['random_state']})
+            logging.info(f"{classifier} model successfully initialized!")
+
+            try:
+                logging.info('Starting model training...')
+                if not mode:
+                    train_path = os.path.join(config['featured_path'], config['featured_data'][0])
+                    test_path = os.path.join(config['featured_path'], config['featured_data'][1])
+
+                # Train --------------------------------------------------------------------------------------------------------
+                logging.info(f'Training {classifier} model...')
+                train_data = load_data(input_data=train_path, mode=mode)
+                y_train = train_data[config['target']]
+                x_train = train_data[train_data.columns.difference([config['target']])]
+                modeler.train(x_train, y_train)
+                logging.info(f'{classifier} model successfully trained!')
+
+                logging.info(f'Testing {classifier} model...')
+                # Predict and Evalutate ----------------------------------------------------------------------------------------
+                test_data = load_data(input_data=test_path, mode=mode)
+                x_test = test_data[train_data.columns.difference([config['target']])]
+                y_pred = modeler.predict(x_test)
+                metrics = modeler.evaluate(y_train, y_pred)
+                # TODO: Store metrics. Figure out how to consume in the next stage for model validation.
+                pprint.pprint(metrics)
+
+            except RuntimeError as error:
+                logging.info(error)
+                sys.exit(1)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Run train', description='')
+        _parser.add_argument("--config", dest="config", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--mode", dest="mode", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--bucket", dest="bucket", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--train-path", dest="train_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--test-path", dest="test_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--classifier", dest="classifier", type=str, required=False, default=argparse.SUPPRESS)
+        _parser.add_argument("----output-paths", dest="_output_paths", type=str, nargs=3)
+        _parsed_args = vars(_parser.parse_args())
+        _output_files = _parsed_args.pop("_output_paths", [])
+
+        _outputs = run_train(**_parsed_args)
+
+        _output_serializers = [
+            str,
+            str,
+            str,
+
+        ]
+
+        import os
+        for idx, output_file in enumerate(_output_files):
+            try:
+                os.makedirs(os.path.dirname(output_file))
+            except OSError:
+                pass
+            with open(output_file, 'w') as f:
+                f.write(_output_serializers[idx](_outputs[idx]))
+      env:
+      - {name: GOOGLE_APPLICATION_CREDENTIALS, value: /secret/gcp-credentials/user-gcp-sa.json}
+      - {name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE, value: /secret/gcp-credentials/user-gcp-sa.json}
+      image: docker.io/in92/model_trainer:latest
+      resources:
+        limits: {memory: 3G}
+        requests: {memory: 3G}
+      volumeMounts:
+      - {mountPath: /secret/gcp-credentials, name: gcp-credentials-user-gcp-sa}
+    inputs:
+      parameters:
+      - {name: bucket}
+      - {name: config_file}
+      - {name: mode}
+      - {name: run-generate-features-test}
+      - {name: run-generate-features-train}
+    outputs:
+      artifacts:
+      - {name: run-train-6-model, path: /tmp/outputs/model/data}
+      - {name: run-train-6-test, path: /tmp/outputs/test/data}
+      - {name: run-train-6-train, path: /tmp/outputs/train/data}
+    metadata:
+      annotations: {pipelines.kubeflow.org/task_display_name: LightGb node, pipelines.kubeflow.org/component_spec: '{"implementation":
+          {"container": {"args": ["--config", {"inputValue": "config"}, "--mode",
+          {"inputValue": "mode"}, "--bucket", {"inputValue": "bucket"}, "--train-path",
+          {"inputValue": "train_path"}, "--test-path", {"inputValue": "test_path"},
+          {"if": {"cond": {"isPresent": "classifier"}, "then": ["--classifier", {"inputValue":
+          "classifier"}]}}, "----output-paths", {"outputPath": "train"}, {"outputPath":
+          "test"}, {"outputPath": "model"}], "command": ["sh", "-ec", "program_path=$(mktemp)\nprintf
+          \"%s\" \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n",
+          "def run_train(config,\n              mode,\n              bucket,\n              train_path,\n              test_path,\n              classifier=''logit''):\n    #
+          Libraries --------------------------------------------------------------------------------------------------------\n\n    import
+          logging.config\n    import yaml\n    import sys\n    import os\n    import
+          pprint\n    from sklearn.linear_model import LogisticRegression\n    from
+          sklearn.tree import DecisionTreeClassifier\n    from sklearn.ensemble import
+          RandomForestClassifier, GradientBoostingClassifier\n    from xgboost import
+          XGBClassifier\n    from lightgbm import LGBMClassifier\n    from src.train_model
+          import Modeler\n    from src.helpers import load_data, save_data\n\n    #
+          Settings ---------------------------------------------------------------------------------------------------------\n    logging.basicConfig(format=''%(asctime)s
+          %(levelname)s %(message)s'',\n                        datefmt=''%m/%d/%Y
+          %I:%M:%S %p'', level=logging.INFO)\n\n    logging.info(''Initializing configuration...'')\n    stream
+          = open(config, ''r'')\n    config = yaml.load(stream=stream, Loader=yaml.FullLoader)\n\n    logging.info(\"Initializing
+          model...\")\n    if classifier == ''logit'':\n        modeler = Modeler(LogisticRegression,
+          params={''max_iter'': config[''models''][''logit''][''max_iter''],\n                                                      ''random_state'':
+          config[''random_state'']})\n    if classifier == ''dtree'':\n        modeler
+          = Modeler(DecisionTreeClassifier, params={''random_state'': config[''random_state'']})\n    if
+          classifier == ''rf'':\n        modeler = Modeler(RandomForestClassifier,
+          params={''random_state'': config[''random_state'']})\n    if classifier
+          == ''gb'':\n        modeler = Modeler(GradientBoostingClassifier, params={''random_state'':
+          config[''random_state'']})\n    if classifier == ''xgb'':\n        modeler
+          = Modeler(XGBClassifier, params={''use_label_encoder'': config[''models''][''xgb''][''use_label_encoder''],\n                                                 ''random_state'':
+          config[''random_state'']})\n    if classifier == ''lightgb'':\n        modeler
+          = Modeler(LGBMClassifier, params={''random_state'': config[''random_state'']})\n    logging.info(f\"{classifier}
+          model successfully initialized!\")\n\n    try:\n        logging.info(''Starting
+          model training...'')\n        if not mode:\n            train_path = os.path.join(config[''featured_path''],
+          config[''featured_data''][0])\n            test_path = os.path.join(config[''featured_path''],
+          config[''featured_data''][1])\n\n        # Train --------------------------------------------------------------------------------------------------------\n        logging.info(f''Training
+          {classifier} model...'')\n        train_data = load_data(input_data=train_path,
+          mode=mode)\n        y_train = train_data[config[''target'']]\n        x_train
+          = train_data[train_data.columns.difference([config[''target'']])]\n        modeler.train(x_train,
+          y_train)\n        logging.info(f''{classifier} model successfully trained!'')\n\n        logging.info(f''Testing
+          {classifier} model...'')\n        # Predict and Evalutate ----------------------------------------------------------------------------------------\n        test_data
+          = load_data(input_data=test_path, mode=mode)\n        x_test = test_data[train_data.columns.difference([config[''target'']])]\n        y_pred
+          = modeler.predict(x_test)\n        metrics = modeler.evaluate(y_train, y_pred)\n        #
+          TODO: Store metrics. Figure out how to consume in the next stage for model
+          validation.\n        pprint.pprint(metrics)\n\n    except RuntimeError as
+          error:\n        logging.info(error)\n        sys.exit(1)\n\nimport argparse\n_parser
+          = argparse.ArgumentParser(prog=''Run train'', description='''')\n_parser.add_argument(\"--config\",
+          dest=\"config\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--mode\",
+          dest=\"mode\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--bucket\",
+          dest=\"bucket\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--train-path\",
+          dest=\"train_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--test-path\",
+          dest=\"test_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--classifier\",
+          dest=\"classifier\", type=str, required=False, default=argparse.SUPPRESS)\n_parser.add_argument(\"----output-paths\",
+          dest=\"_output_paths\", type=str, nargs=3)\n_parsed_args = vars(_parser.parse_args())\n_output_files
+          = _parsed_args.pop(\"_output_paths\", [])\n\n_outputs = run_train(**_parsed_args)\n\n_output_serializers
+          = [\n    str,\n    str,\n    str,\n\n]\n\nimport os\nfor idx, output_file
+          in enumerate(_output_files):\n    try:\n        os.makedirs(os.path.dirname(output_file))\n    except
+          OSError:\n        pass\n    with open(output_file, ''w'') as f:\n        f.write(_output_serializers[idx](_outputs[idx]))\n"],
+          "image": "docker.io/in92/model_trainer:latest"}}, "inputs": [{"name": "config",
+          "type": "String"}, {"name": "mode", "type": "String"}, {"name": "bucket",
+          "type": "String"}, {"name": "train_path", "type": "GCSPath"}, {"name": "test_path",
+          "type": "GCSPath"}, {"default": "lightgb", "name": "classifier", "optional":
+          true}], "name": "Run train", "outputs": [{"name": "train", "type": "GCSPath"},
+          {"name": "test", "type": "GCSPath"}, {"name": "model", "type": "GCSPath"}]}',
+        pipelines.kubeflow.org/component_ref: '{"digest": "e6b8126efe81bd9f34907d34cc9466914c5a4b9a6108373b6ac7a542ef73d1d8",
+          "url": "../deliverables/components/model_training/lightgb/component.yaml"}',
+        pipelines.kubeflow.org/arguments.parameters: '{"bucket": "{{inputs.parameters.bucket}}",
+          "config": "{{inputs.parameters.config_file}}", "mode": "{{inputs.parameters.mode}}",
+          "test_path": "{{inputs.parameters.run-generate-features-test}}", "train_path":
+          "{{inputs.parameters.run-generate-features-train}}"}'}
+    volumes:
+    - name: gcp-credentials-user-gcp-sa
+      secret: {secretName: user-gcp-sa}
+  - name: run-validate
+    container:
+      args: [--config, '{{inputs.parameters.config_file}}', --mode, '{{inputs.parameters.mode}}',
+        --bucket, '{{inputs.parameters.bucket}}']
+      command:
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def run_validate(config,
+                         mode,
+                         bucket):
+
+            # Libraries --------------------------------------------------------------------------------------------------------
+            import logging
+            import yaml
+            from src.validate import DataValidator
+            from src.helpers import load_data
+            import sys
+
+            # Settings ---------------------------------------------------------------------------------------------------------
+            logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
+                                datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+
+            try:
+                logging.info('Initializing configuration...')
+                stream = open(config, 'r')
+                config = yaml.load(stream=stream, Loader=yaml.FullLoader)
+                validator = DataValidator(config=config)
+                df = load_data(input_path=config['raw_path'], input_data=config['raw_data'], mode=mode, bucket=bucket)
+                validation_status = validator.validate(df=df)
+                validator.check_validity(validation_status=validation_status)
+            except RuntimeError as error:
+                logging.info(error)
+                sys.exit(1)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Run validate', description='')
+        _parser.add_argument("--config", dest="config", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--mode", dest="mode", type=str, required=True, default=argparse.SUPPRESS)
+        _parser.add_argument("--bucket", dest="bucket", type=str, required=True, default=argparse.SUPPRESS)
+        _parsed_args = vars(_parser.parse_args())
+
+        _outputs = run_validate(**_parsed_args)
+      env:
+      - {name: GOOGLE_APPLICATION_CREDENTIALS, value: /secret/gcp-credentials/user-gcp-sa.json}
+      - {name: CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE, value: /secret/gcp-credentials/user-gcp-sa.json}
+      image: docker.io/in92/data_validate:latest
+      volumeMounts:
+      - {mountPath: /secret/gcp-credentials, name: gcp-credentials-user-gcp-sa}
+    inputs:
+      parameters:
+      - {name: bucket}
+      - {name: config_file}
+      - {name: mode}
+    metadata:
+      annotations: {pipelines.kubeflow.org/task_display_name: Data Validation node,
+        pipelines.kubeflow.org/component_spec: '{"implementation": {"container": {"args":
+          ["--config", {"inputValue": "config"}, "--mode", {"inputValue": "mode"},
+          "--bucket", {"inputValue": "bucket"}], "command": ["sh", "-ec", "program_path=$(mktemp)\nprintf
+          \"%s\" \"$0\" > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n",
+          "def run_validate(config,\n                 mode,\n                 bucket):\n\n    #
+          Libraries --------------------------------------------------------------------------------------------------------\n    import
+          logging\n    import yaml\n    from src.validate import DataValidator\n    from
+          src.helpers import load_data\n    import sys\n\n    # Settings ---------------------------------------------------------------------------------------------------------\n    logging.basicConfig(format=''%(asctime)s
+          %(levelname)s %(message)s'',\n                        datefmt=''%m/%d/%Y
+          %I:%M:%S %p'', level=logging.INFO)\n\n    try:\n        logging.info(''Initializing
+          configuration...'')\n        stream = open(config, ''r'')\n        config
+          = yaml.load(stream=stream, Loader=yaml.FullLoader)\n        validator =
+          DataValidator(config=config)\n        df = load_data(input_path=config[''raw_path''],
+          input_data=config[''raw_data''], mode=mode, bucket=bucket)\n        validation_status
+          = validator.validate(df=df)\n        validator.check_validity(validation_status=validation_status)\n    except
+          RuntimeError as error:\n        logging.info(error)\n        sys.exit(1)\n\nimport
+          argparse\n_parser = argparse.ArgumentParser(prog=''Run validate'', description='''')\n_parser.add_argument(\"--config\",
+          dest=\"config\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--mode\",
+          dest=\"mode\", type=str, required=True, default=argparse.SUPPRESS)\n_parser.add_argument(\"--bucket\",
+          dest=\"bucket\", type=str, required=True, default=argparse.SUPPRESS)\n_parsed_args
+          = vars(_parser.parse_args())\n\n_outputs = run_validate(**_parsed_args)\n"],
+          "image": "docker.io/in92/data_validate:latest"}}, "inputs": [{"name": "config",
+          "type": "String"}, {"name": "mode", "type": "String"}, {"name": "bucket",
+          "type": "String"}], "name": "Run validate"}', pipelines.kubeflow.org/component_ref: '{"digest":
+          "ce9024d83ea8b5c7617cbf1c19a53691ede227836e11d301849650fe7cfc428d", "url":
+          "../deliverables/components/data_validation/component.yaml"}', pipelines.kubeflow.org/arguments.parameters: '{"bucket":
+          "{{inputs.parameters.bucket}}", "config": "{{inputs.parameters.config_file}}",
+          "mode": "{{inputs.parameters.mode}}"}'}
+    volumes:
+    - name: gcp-credentials-user-gcp-sa
+      secret: {secretName: user-gcp-sa}
+  - name: women-clothing-reviews-classification-ml-pipeline
+    inputs:
+      parameters:
+      - {name: bucket}
+      - {name: config_file}
+      - {name: mode}
+    dag:
+      tasks:
+      - name: run-collect
+        template: run-collect
+        arguments:
+          parameters:
+          - {name: bucket, value: '{{inputs.parameters.bucket}}'}
+          - {name: config_file, value: '{{inputs.parameters.config_file}}'}
+          - {name: mode, value: '{{inputs.parameters.mode}}'}
+      - name: run-generate-features
+        template: run-generate-features
+        dependencies: [run-prepare]
+        arguments:
+          parameters:
+          - {name: bucket, value: '{{inputs.parameters.bucket}}'}
+          - {name: config_file, value: '{{inputs.parameters.config_file}}'}
+          - {name: mode, value: '{{inputs.parameters.mode}}'}
+          - {name: run-prepare-test, value: '{{tasks.run-prepare.outputs.parameters.run-prepare-test}}'}
+          - {name: run-prepare-train, value: '{{tasks.run-prepare.outputs.parameters.run-prepare-train}}'}
+          - {name: run-prepare-val, value: '{{tasks.run-prepare.outputs.parameters.run-prepare-val}}'}
+      - name: run-prepare
+        template: run-prepare
+        dependencies: [run-collect]
+        arguments:
+          parameters:
+          - {name: bucket, value: '{{inputs.parameters.bucket}}'}
+          - {name: config_file, value: '{{inputs.parameters.config_file}}'}
+          - {name: mode, value: '{{inputs.parameters.mode}}'}
+          - {name: run-collect-test, value: '{{tasks.run-collect.outputs.parameters.run-collect-test}}'}
+          - {name: run-collect-train, value: '{{tasks.run-collect.outputs.parameters.run-collect-train}}'}
+          - {name: run-collect-val, value: '{{tasks.run-collect.outputs.parameters.run-collect-val}}'}
+      - name: run-train
+        template: run-train
+        dependencies: [run-generate-features]
+        arguments:
+          parameters:
+          - {name: bucket, value: '{{inputs.parameters.bucket}}'}
+          - {name: config_file, value: '{{inputs.parameters.config_file}}'}
+          - {name: mode, value: '{{inputs.parameters.mode}}'}
+          - {name: run-generate-features-test, value: '{{tasks.run-generate-features.outputs.parameters.run-generate-features-test}}'}
+          - {name: run-generate-features-train, value: '{{tasks.run-generate-features.outputs.parameters.run-generate-features-train}}'}
+      - name: run-train-2
+        template: run-train-2
+        dependencies: [run-generate-features]
+        arguments:
+          parameters:
+          - {name: bucket, value: '{{inputs.parameters.bucket}}'}
+          - {name: config_file, value: '{{inputs.parameters.config_file}}'}
+          - {name: mode, value: '{{inputs.parameters.mode}}'}
+          - {name: run-generate-features-test, value: '{{tasks.run-generate-features.outputs.parameters.run-generate-features-test}}'}
+          - {name: run-generate-features-train, value: '{{tasks.run-generate-features.outputs.parameters.run-generate-features-train}}'}
+      - name: run-train-3
+        template: run-train-3
+        dependencies: [run-generate-features]
+        arguments:
+          parameters:
+          - {name: bucket, value: '{{inputs.parameters.bucket}}'}
+          - {name: config_file, value: '{{inputs.parameters.config_file}}'}
+          - {name: mode, value: '{{inputs.parameters.mode}}'}
+          - {name: run-generate-features-test, value: '{{tasks.run-generate-features.outputs.parameters.run-generate-features-test}}'}
+          - {name: run-generate-features-train, value: '{{tasks.run-generate-features.outputs.parameters.run-generate-features-train}}'}
+      - name: run-train-4
+        template: run-train-4
+        dependencies: [run-generate-features]
+        arguments:
+          parameters:
+          - {name: bucket, value: '{{inputs.parameters.bucket}}'}
+          - {name: config_file, value: '{{inputs.parameters.config_file}}'}
+          - {name: mode, value: '{{inputs.parameters.mode}}'}
+          - {name: run-generate-features-test, value: '{{tasks.run-generate-features.outputs.parameters.run-generate-features-test}}'}
+          - {name: run-generate-features-train, value: '{{tasks.run-generate-features.outputs.parameters.run-generate-features-train}}'}
+      - name: run-train-5
+        template: run-train-5
+        dependencies: [run-generate-features]
+        arguments:
+          parameters:
+          - {name: bucket, value: '{{inputs.parameters.bucket}}'}
+          - {name: config_file, value: '{{inputs.parameters.config_file}}'}
+          - {name: mode, value: '{{inputs.parameters.mode}}'}
+          - {name: run-generate-features-test, value: '{{tasks.run-generate-features.outputs.parameters.run-generate-features-test}}'}
+          - {name: run-generate-features-train, value: '{{tasks.run-generate-features.outputs.parameters.run-generate-features-train}}'}
+      - name: run-train-6
+        template: run-train-6
+        dependencies: [run-generate-features]
+        arguments:
+          parameters:
+          - {name: bucket, value: '{{inputs.parameters.bucket}}'}
+          - {name: config_file, value: '{{inputs.parameters.config_file}}'}
+          - {name: mode, value: '{{inputs.parameters.mode}}'}
+          - {name: run-generate-features-test, value: '{{tasks.run-generate-features.outputs.parameters.run-generate-features-test}}'}
+          - {name: run-generate-features-train, value: '{{tasks.run-generate-features.outputs.parameters.run-generate-features-train}}'}
+      - name: run-validate
+        template: run-validate
+        arguments:
+          parameters:
+          - {name: bucket, value: '{{inputs.parameters.bucket}}'}
+          - {name: config_file, value: '{{inputs.parameters.config_file}}'}
+          - {name: mode, value: '{{inputs.parameters.mode}}'}
+  arguments:
+    parameters:
+    - {name: config_file, value: config.yaml}
+    - {name: mode}
+    - {name: bucket}
+  serviceAccountName: pipeline-runner

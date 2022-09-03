@@ -1,0 +1,15 @@
+dataset: 'nicapotato/womens-ecommerce-clothing-reviews'
+raw_path: 'data/raw'
+raw_data: 'Womens Clothing E-Commerce Reviews.csv'
+target: 'recommended_ind'
+variables:
+  - 'clothing_id'
+  - 'review_text'
+random_state: 8
+test_size: 0.2
+val_size: 0.25
+interim_path: 'data/interim'
+interim_data:
+  - 'train_interim.csv'
+  - 'test_interim.csv'
+  - 'val_interim.csv'

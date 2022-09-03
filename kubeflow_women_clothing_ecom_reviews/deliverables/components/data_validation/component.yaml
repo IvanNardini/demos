@@ -1,0 +1,58 @@
+name: Run validate
+inputs:
+- {name: config, type: String}
+- {name: mode, type: String}
+- {name: bucket, type: String}
+implementation:
+  container:
+    image: docker.io/in92/data_validate:latest
+    command:
+    - sh
+    - -ec
+    - |
+      program_path=$(mktemp)
+      printf "%s" "$0" > "$program_path"
+      python3 -u "$program_path" "$@"
+    - |
+      def run_validate(config,
+                       mode,
+                       bucket):
+
+          # Libraries --------------------------------------------------------------------------------------------------------
+          import logging
+          import yaml
+          from src.validate import DataValidator
+          from src.helpers import load_data
+          import sys
+
+          # Settings ---------------------------------------------------------------------------------------------------------
+          logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
+                              datefmt='%m/%d/%Y %I:%M:%S %p', level=logging.INFO)
+
+          try:
+              logging.info('Initializing configuration...')
+              stream = open(config, 'r')
+              config = yaml.load(stream=stream, Loader=yaml.FullLoader)
+              validator = DataValidator(config=config)
+              df = load_data(input_path=config['raw_path'], input_data=config['raw_data'], mode=mode, bucket=bucket)
+              validation_status = validator.validate(df=df)
+              validator.check_validity(validation_status=validation_status)
+          except RuntimeError as error:
+              logging.info(error)
+              sys.exit(1)
+
+      import argparse
+      _parser = argparse.ArgumentParser(prog='Run validate', description='')
+      _parser.add_argument("--config", dest="config", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--mode", dest="mode", type=str, required=True, default=argparse.SUPPRESS)
+      _parser.add_argument("--bucket", dest="bucket", type=str, required=True, default=argparse.SUPPRESS)
+      _parsed_args = vars(_parser.parse_args())
+
+      _outputs = run_validate(**_parsed_args)
+    args:
+    - --config
+    - {inputValue: config}
+    - --mode
+    - {inputValue: mode}
+    - --bucket
+    - {inputValue: bucket}
