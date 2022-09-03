@@ -1,0 +1,7 @@
+version: "3.6"
+services: 
+  train:
+    build:
+      context: .
+      dockerfile: dockerfile
+    image: ml-test:v3
